@@ -6,7 +6,7 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
-    base: '/BusinessIQ/',
+    base: '/Business_IQ/',
     plugins: [
       react(),
       tailwindcss(),
