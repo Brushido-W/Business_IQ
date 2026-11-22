@@ -171,7 +171,7 @@ export const LibraryDetailScreen: React.FC<LibraryDetailScreenProps> = ({
                     className="w-full flex items-center gap-2.5 px-3.5 py-2 text-[13px] text-[#0F172A] hover:bg-[#F8FAFC] text-left"
                   >
                     <MessageSquareMore className="w-4 h-4 text-[#2563EB]" />
-                    Ask AI about this library
+                    Ask BIQ about this library
                   </button>
                   <button
                     type="button"
@@ -577,7 +577,8 @@ export const LibraryDetailScreen: React.FC<LibraryDetailScreenProps> = ({
               </div>
               <p className="text-[13.5px] text-[#475569] leading-relaxed">
                 This library is bound to its own dedicated vector store identifier on the server.
-                When selected in Ask AI, retrieval is strictly isolated to Ready documents inside{' '}
+                When selected in Ask BIQ, retrieval is strictly isolated to the selected
+                libraries including{' '}
                 <span className="font-semibold text-[#0F172A]">{library.name}</span>.
               </p>
 
@@ -614,7 +615,7 @@ export const LibraryDetailScreen: React.FC<LibraryDetailScreenProps> = ({
                 className="inline-flex items-center gap-2 px-4 py-2 text-[13.5px] font-semibold text-white bg-[#2563EB] hover:bg-[#1D4ED8] rounded-[8px]"
               >
                 <MessageSquareMore className="w-4 h-4" />
-                Ask AI about {library.name}
+                Ask BIQ about {library.name}
               </button>
               <button
                 type="button"

@@ -53,6 +53,11 @@ export const api = {
     libraryId: string;
     libraryName: string;
     vectorStoreId: string;
+    libraries?: Array<{
+      libraryId: string;
+      libraryName: string;
+      vectorStoreId: string;
+    }>;
     readyDocumentsSearched: number;
     processingDocumentsSkipped: number;
     question: string;
@@ -61,6 +66,8 @@ export const api = {
       chunk: DocumentChunk;
       documentTitle: string;
       fileType: DocumentFileType;
+      libraryId?: string;
+      libraryName?: string;
       folderName: string | null;
       score: number;
     }>;

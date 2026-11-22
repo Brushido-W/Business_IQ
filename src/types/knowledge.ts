@@ -91,6 +91,7 @@ export interface Citation {
   documentTitle: string;
   fileType: DocumentFileType;
   libraryId: string;
+  libraryName?: string;
   folderName: string | null;
   pageNumber: number;
   pageLabel: string;
@@ -106,6 +107,8 @@ export interface ChatMessage {
   timestamp: string;
   libraryId: string;
   libraryName: string;
+  libraryIds?: string[];
+  libraryNames?: string[];
   citations?: Citation[];
   insufficientEvidence?: boolean;
   processingWarning?: string | null;
@@ -118,6 +121,8 @@ export interface AskResponse {
   citations: Citation[];
   libraryId: string;
   libraryName: string;
+  libraryIds?: string[];
+  libraryNames?: string[];
   vectorStoreId: string;
   readyDocumentsSearched: number;
   processingDocumentsSkipped: number;

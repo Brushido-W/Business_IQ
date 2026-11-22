@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, Loader2, Menu, X } from 'lucide-react';
 import { onAuthStateChanged, signOut, User } from 'firebase/auth';
 import {
@@ -13,7 +13,7 @@ import {
 import { api } from './lib/api.ts';
 import { auth, extractFriendlyErrorMessage } from './lib/firebase.ts';
 import {
-  askLibraryQuestion,
+  askLibrariesQuestion,
   createFolder,
   createLibrary,
   deleteDocument,
@@ -81,7 +81,8 @@ export default function App() {
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [libraries, setLibraries] = useState<KnowledgeLibrary[]>([]);
   const [loadingLibraries, setLoadingLibraries] = useState(true);
-  const [selectedAskLibraryId, setSelectedAskLibraryId] = useState<string | null>(null);
+  const [selectedAskLibraryIds, setSelectedAskLibraryIds] = useState<string[]>([]);
+  const hasAutoSelectedAskRef = useRef(false);
 
   // Library Detail state
   const [activeLibraryDetail, setActiveLibraryDetail] = useState<KnowledgeLibrary | null>(null);
@@ -94,8 +95,8 @@ export default function App() {
   const [activeDocumentDetail, setActiveDocumentDetail] = useState<DocumentDetail | null>(null);
   const [loadingDocument, setLoadingDocument] = useState(false);
 
-  // Ask AI state (scoped cleanly per library)
-  const [messagesByLibrary, setMessagesByLibrary] = useState<Record<string, ChatMessage[]>>({});
+  // Ask BIQ state (scoped cleanly per library combination)
+  const [messagesByScope, setMessagesByScope] = useState<Record<string, ChatMessage[]>>({});
   const [isAsking, setIsAsking] = useState(false);
 
   // Upload Modal state
@@ -165,12 +166,13 @@ export default function App() {
 
       if (!firebaseUser) {
         setLibraries([]);
-        setSelectedAskLibraryId(null);
+        setSelectedAskLibraryIds([]);
+        hasAutoSelectedAskRef.current = false;
         setActiveLibraryDetail(null);
         setActiveFolders([]);
         setActiveDocuments([]);
         setActiveDocumentDetail(null);
-        setMessagesByLibrary({});
+        setMessagesByScope({});
         setLoadingLibraries(false);
         setView({ type: 'ask' });
       }
@@ -210,9 +212,14 @@ export default function App() {
       user.uid,
       (libs) => {
         setLibraries(libs);
-        setSelectedAskLibraryId((prev) => {
-          if (prev && libs.some((l) => l.id === prev)) return prev;
-          return libs[0]?.id || null;
+        setSelectedAskLibraryIds((prev) => {
+          const valid = prev.filter((id) => libs.some((l) => l.id === id));
+          if (valid.length > 0) return valid;
+          if (!hasAutoSelectedAskRef.current && libs[0]?.id) {
+            hasAutoSelectedAskRef.current = true;
+            return [libs[0].id];
+          }
+          return valid;
         });
         setLoadingLibraries(false);
       },
@@ -230,9 +237,14 @@ export default function App() {
     try {
       const libs = await listLibrariesOnce(user.uid);
       setLibraries(libs);
-      setSelectedAskLibraryId((prev) => {
-        if (prev && libs.some((l) => l.id === prev)) return prev;
-        return libs[0]?.id || null;
+      setSelectedAskLibraryIds((prev) => {
+        const valid = prev.filter((id) => libs.some((l) => l.id === id));
+        if (valid.length > 0) return valid;
+        if (!hasAutoSelectedAskRef.current && libs[0]?.id) {
+          hasAutoSelectedAskRef.current = true;
+          return [libs[0].id];
+        }
+        return valid;
       });
     } catch (err: unknown) {
       showToast(
@@ -323,25 +335,35 @@ export default function App() {
     }
   };
 
-  // --- Ask AI Handlers ---
+  // --- Ask BIQ Handlers ---
+  const askScopeKey =
+    selectedAskLibraryIds.length > 0 ? [...selectedAskLibraryIds].sort().join(',') : '';
+
   const handleSendQuestion = async (question: string) => {
-    if (!user || !selectedAskLibraryId) return;
-    const lib = libraries.find((l) => l.id === selectedAskLibraryId);
-    if (!lib) return;
+    if (!user || selectedAskLibraryIds.length === 0) return;
+    const selectedLibs = libraries.filter((l) => selectedAskLibraryIds.includes(l.id));
+    if (selectedLibs.length === 0) return;
+
+    const scopeKey = [...selectedLibs.map((l) => l.id)].sort().join(',');
+    const primaryLib = selectedLibs[0];
+    const scopeNames = selectedLibs.map((l) => l.name);
+    const scopeDisplayName = scopeNames.join(', ');
 
     const userMsg: ChatMessage = {
       id: `msg_u_${Date.now()}`,
       role: 'user',
       content: question,
       timestamp: formatChatTime(),
-      libraryId: lib.id,
-      libraryName: lib.name,
+      libraryId: primaryLib.id,
+      libraryName: scopeDisplayName,
+      libraryIds: selectedLibs.map((l) => l.id),
+      libraryNames: scopeNames,
     };
 
-    const existingMessages = messagesByLibrary[lib.id] || [];
-    setMessagesByLibrary((prev) => ({
+    const existingMessages = messagesByScope[scopeKey] || [];
+    setMessagesByScope((prev) => ({
       ...prev,
-      [lib.id]: [...existingMessages, userMsg],
+      [scopeKey]: [...existingMessages, userMsg],
     }));
 
     setIsAsking(true);
@@ -350,9 +372,9 @@ export default function App() {
         role: m.role,
         content: m.content,
       }));
-      const res = await askLibraryQuestion({
+      const res = await askLibrariesQuestion({
         userId: user.uid,
-        library: lib,
+        libraries: selectedLibs,
         question,
         history,
       });
@@ -364,32 +386,36 @@ export default function App() {
         timestamp: formatChatTime(),
         libraryId: res.libraryId,
         libraryName: res.libraryName,
+        libraryIds: res.libraryIds || selectedLibs.map((l) => l.id),
+        libraryNames: res.libraryNames || scopeNames,
         citations: res.citations,
         insufficientEvidence: res.insufficientEvidence,
         processingWarning: res.processingWarning,
       };
 
-      setMessagesByLibrary((prev) => ({
+      setMessagesByScope((prev) => ({
         ...prev,
-        [lib.id]: [...(prev[lib.id] || []), assistantMsg],
+        [scopeKey]: [...(prev[scopeKey] || []), assistantMsg],
       }));
     } catch (err: unknown) {
       const errorText = extractFriendlyErrorMessage(
         err,
-        'Error while querying the selected knowledge library.'
+        'Error while querying the selected knowledge libraries.'
       );
       const errMsg: ChatMessage = {
         id: `msg_e_${Date.now()}`,
         role: 'assistant',
         content: errorText,
         timestamp: formatChatTime(),
-        libraryId: lib.id,
-        libraryName: lib.name,
+        libraryId: primaryLib.id,
+        libraryName: scopeDisplayName,
+        libraryIds: selectedLibs.map((l) => l.id),
+        libraryNames: scopeNames,
         isError: true,
       };
-      setMessagesByLibrary((prev) => ({
+      setMessagesByScope((prev) => ({
         ...prev,
-        [lib.id]: [...(prev[lib.id] || []), errMsg],
+        [scopeKey]: [...(prev[scopeKey] || []), errMsg],
       }));
     } finally {
       setIsAsking(false);
@@ -397,17 +423,18 @@ export default function App() {
   };
 
   const handleClearChat = () => {
-    if (!selectedAskLibraryId) return;
-    setMessagesByLibrary((prev) => ({
+    if (!askScopeKey) return;
+    setMessagesByScope((prev) => ({
       ...prev,
-      [selectedAskLibraryId]: [],
+      [askScopeKey]: [],
     }));
   };
 
   const handleOpenQuickUploadFromAsk = async () => {
-    if (!user || !selectedAskLibraryId) return;
+    if (!user || selectedAskLibraryIds.length === 0) return;
+    const targetLibraryId = selectedAskLibraryIds[0];
     try {
-      const detail = await getLibraryDetailOnce(user.uid, selectedAskLibraryId);
+      const detail = await getLibraryDetailOnce(user.uid, targetLibraryId);
       setUploadModalState({
         open: true,
         libraryId: detail.library.id,
@@ -427,7 +454,8 @@ export default function App() {
       if (libraryModal.mode === 'create') {
         const created = await createLibrary(user.uid, { name, description });
         await refreshLibraries();
-        setSelectedAskLibraryId(created.id);
+        hasAutoSelectedAskRef.current = true;
+        setSelectedAskLibraryIds([created.id]);
         showToast('success', `Created library "${created.name}".`);
       } else if (libraryModal.target) {
         const updated = await updateLibrary(libraryModal.target.id, { name, description });
@@ -454,9 +482,14 @@ export default function App() {
       onConfirm: async () => {
         try {
           await deleteLibrary(user.uid, library.id);
-          setMessagesByLibrary((prev) => {
+          setSelectedAskLibraryIds((prev) => prev.filter((id) => id !== library.id));
+          setMessagesByScope((prev) => {
             const copy = { ...prev };
-            delete copy[library.id];
+            for (const key of Object.keys(copy)) {
+              if (key.split(',').includes(library.id)) {
+                delete copy[key];
+              }
+            }
             return copy;
           });
           await refreshLibraries();
@@ -626,8 +659,8 @@ export default function App() {
     return <AuthGate />;
   }
 
-  const currentAskMessages = selectedAskLibraryId
-    ? messagesByLibrary[selectedAskLibraryId] || []
+  const currentAskMessages = askScopeKey
+    ? messagesByScope[askScopeKey] || []
     : [];
 
   return (
@@ -665,8 +698,11 @@ export default function App() {
         {view.type === 'ask' && (
           <AskAIScreen
             libraries={libraries}
-            selectedLibraryId={selectedAskLibraryId}
-            onSelectLibrary={setSelectedAskLibraryId}
+            selectedLibraryIds={selectedAskLibraryIds}
+            onChangeSelectedLibraries={(ids) => {
+              hasAutoSelectedAskRef.current = true;
+              setSelectedAskLibraryIds(ids);
+            }}
             messages={currentAskMessages}
             isAsking={isAsking}
             onSendQuestion={handleSendQuestion}
@@ -729,7 +765,8 @@ export default function App() {
               }
               onDeleteLibrary={() => requestDeleteLibrary(activeLibraryDetail)}
               onAskAboutLibrary={() => {
-                setSelectedAskLibraryId(activeLibraryDetail.id);
+                hasAutoSelectedAskRef.current = true;
+                setSelectedAskLibraryIds([activeLibraryDetail.id]);
                 setView({ type: 'ask' });
               }}
               onCreateFolder={() =>

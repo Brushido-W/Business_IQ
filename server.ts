@@ -172,6 +172,17 @@ async function startServer() {
     const libraryName = typeof req.body?.libraryName === 'string' ? req.body.libraryName.trim() : '';
     const vectorStoreId =
       typeof req.body?.vectorStoreId === 'string' ? req.body.vectorStoreId.trim() : '';
+    const libraries = Array.isArray(req.body?.libraries)
+      ? req.body.libraries
+          .filter(
+            (l: unknown): l is { libraryId: string; libraryName: string; vectorStoreId: string } =>
+              typeof l === 'object' &&
+              l !== null &&
+              typeof (l as { libraryId?: string }).libraryId === 'string' &&
+              typeof (l as { libraryName?: string }).libraryName === 'string'
+          )
+          .slice(0, 25)
+      : undefined;
     const question = typeof req.body?.question === 'string' ? req.body.question.trim() : '';
     const readyDocumentsSearched =
       typeof req.body?.readyDocumentsSearched === 'number' ? req.body.readyDocumentsSearched : 0;
@@ -180,7 +191,7 @@ async function startServer() {
         ? req.body.processingDocumentsSkipped
         : 0;
     const candidates = Array.isArray(req.body?.candidates)
-      ? (req.body.candidates as CandidatePassageInput[]).slice(0, 8)
+      ? (req.body.candidates as CandidatePassageInput[]).slice(0, 10)
       : [];
     const history = Array.isArray(req.body?.history)
       ? req.body.history
@@ -207,6 +218,7 @@ async function startServer() {
         libraryId,
         libraryName,
         vectorStoreId: vectorStoreId || `vs_biq_${libraryId}`,
+        libraries,
         readyDocumentsSearched,
         processingDocumentsSkipped,
         question,

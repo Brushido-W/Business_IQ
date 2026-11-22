@@ -1282,62 +1282,99 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return denom === 0 ? 0 : dot / denom;
 }
 
-export async function askLibraryQuestion(params: {
+export async function askLibrariesQuestion(params: {
   userId: string;
-  library: KnowledgeLibrary;
+  libraries: KnowledgeLibrary[];
   question: string;
   history: Array<{ role: 'user' | 'assistant'; content: string }>;
 }): Promise<AskResponse> {
-  const { userId, library, question, history } = params;
+  const { userId, libraries, question, history } = params;
+  if (libraries.length === 0) {
+    throw new Error('Select at least one knowledge library to ask a question.');
+  }
+
+  const primaryLibrary = libraries[0];
+  const libraryScope = libraries.map((lib) => ({
+    libraryId: lib.id,
+    libraryName: lib.name,
+    vectorStoreId: lib.vectorStoreId,
+  }));
+  const scopeDisplayName = libraries.map((l) => l.name).join(', ');
 
   try {
-    const [docsSnap, foldersSnap, chunksSnap] = await Promise.all([
-      getDocs(
-        query(collection(db, 'libraries', library.id, 'documents'), where('userId', '==', userId))
-      ),
-      getDocs(
-        query(collection(db, 'libraries', library.id, 'folders'), where('userId', '==', userId))
-      ),
-      getDocs(
-        query(collection(db, 'libraries', library.id, 'chunks'), where('userId', '==', userId))
-      ),
-    ]);
+    const perLibraryData = await Promise.all(
+      libraries.map(async (library) => {
+        const [docsSnap, foldersSnap, chunksSnap] = await Promise.all([
+          getDocs(
+            query(collection(db, 'libraries', library.id, 'documents'), where('userId', '==', userId))
+          ),
+          getDocs(
+            query(collection(db, 'libraries', library.id, 'folders'), where('userId', '==', userId))
+          ),
+          getDocs(
+            query(collection(db, 'libraries', library.id, 'chunks'), where('userId', '==', userId))
+          ),
+        ]);
 
-    const docs = docsSnap.docs.map((d) => mapDocumentDoc(d.id, d.data() as Record<string, unknown>));
-    const readyDocs = docs.filter((d) => d.status === 'ready');
-    const processingDocs = docs.filter(
-      (d) => d.status === 'processing' || d.status === 'uploading'
-    );
-    const docsById = new Map(readyDocs.map((d) => [d.id, d]));
-    const foldersById = new Map(
-      foldersSnap.docs.map((f) => [f.id, String(f.data().name || '')])
-    );
+        const docs = docsSnap.docs.map((d) =>
+          mapDocumentDoc(d.id, d.data() as Record<string, unknown>)
+        );
+        const readyDocs = docs.filter((d) => d.status === 'ready');
+        const processingDocs = docs.filter(
+          (d) => d.status === 'processing' || d.status === 'uploading'
+        );
+        const docsById = new Map(readyDocs.map((d) => [d.id, d]));
+        const foldersById = new Map(
+          foldersSnap.docs.map((f) => [f.id, String(f.data().name || '')])
+        );
 
-    const readyChunks: DocumentChunk[] = chunksSnap.docs
-      .map((c) => {
-        const d = c.data();
+        const readyChunks: DocumentChunk[] = chunksSnap.docs
+          .map((c) => {
+            const d = c.data();
+            return {
+              id: String(d.chunkId || c.id),
+              chunkId: String(d.chunkId || c.id),
+              documentId: String(d.documentId || ''),
+              libraryId: String(d.libraryId || library.id),
+              userId: String(d.userId || userId),
+              pageNumber: Number(d.pageNumber || 1),
+              sectionTitle: (d.sectionTitle as string | null) ?? null,
+              chunkIndex: Number(d.chunkIndex || 0),
+              content: String(d.content || ''),
+              embedding: Array.isArray(d.embedding) ? (d.embedding as number[]) : [],
+            };
+          })
+          .filter((c) => docsById.has(c.documentId));
+
         return {
-          id: String(d.chunkId || c.id),
-          chunkId: String(d.chunkId || c.id),
-          documentId: String(d.documentId || ''),
-          libraryId: String(d.libraryId || library.id),
-          userId: String(d.userId || userId),
-          pageNumber: Number(d.pageNumber || 1),
-          sectionTitle: (d.sectionTitle as string | null) ?? null,
-          chunkIndex: Number(d.chunkIndex || 0),
-          content: String(d.content || ''),
-          embedding: Array.isArray(d.embedding) ? (d.embedding as number[]) : [],
+          library,
+          readyDocs,
+          processingDocs,
+          docsById,
+          foldersById,
+          readyChunks,
         };
       })
-      .filter((c) => docsById.has(c.documentId));
+    );
 
-    if (readyDocs.length === 0 || readyChunks.length === 0) {
+    const totalReadyDocs = perLibraryData.reduce((sum, entry) => sum + entry.readyDocs.length, 0);
+    const totalProcessingDocs = perLibraryData.reduce(
+      (sum, entry) => sum + entry.processingDocs.length,
+      0
+    );
+    const totalReadyChunks = perLibraryData.reduce(
+      (sum, entry) => sum + entry.readyChunks.length,
+      0
+    );
+
+    if (totalReadyDocs === 0 || totalReadyChunks === 0) {
       return await api.answerFromCandidates({
-        libraryId: library.id,
-        libraryName: library.name,
-        vectorStoreId: library.vectorStoreId,
-        readyDocumentsSearched: readyDocs.length,
-        processingDocumentsSkipped: processingDocs.length,
+        libraryId: primaryLibrary.id,
+        libraryName: scopeDisplayName,
+        vectorStoreId: primaryLibrary.vectorStoreId,
+        libraries: libraryScope,
+        readyDocumentsSearched: totalReadyDocs,
+        processingDocumentsSkipped: totalProcessingDocs,
         question,
         history,
         candidates: [],
@@ -1347,45 +1384,51 @@ export async function askLibraryQuestion(params: {
     const { embeddings } = await api.embedTexts([question]).catch(() => ({ embeddings: [null] }));
     const queryVector = embeddings[0] || null;
 
-    const ranked = readyChunks.map((chunk) => {
-      const docMeta = docsById.get(chunk.documentId)!;
-      const folderName = docMeta.folderId ? foldersById.get(docMeta.folderId) || null : null;
-      const lexicalScore = computeLexicalScore(question, chunk.content, docMeta.filename);
-      const vectorScore =
-        queryVector &&
-        chunk.embedding &&
-        chunk.embedding.length === queryVector.length &&
-        queryVector.length > 0
-          ? Math.max(0, cosineSimilarity(queryVector, chunk.embedding))
-          : 0;
-      const score =
-        queryVector && chunk.embedding && chunk.embedding.length > 0
-          ? vectorScore * 0.65 + lexicalScore * 0.35
-          : lexicalScore;
+    const ranked = perLibraryData.flatMap(
+      ({ library, docsById, foldersById, readyChunks }) =>
+        readyChunks.map((chunk) => {
+          const docMeta = docsById.get(chunk.documentId)!;
+          const folderName = docMeta.folderId ? foldersById.get(docMeta.folderId) || null : null;
+          const lexicalScore = computeLexicalScore(question, chunk.content, docMeta.filename);
+          const vectorScore =
+            queryVector &&
+            chunk.embedding &&
+            chunk.embedding.length === queryVector.length &&
+            queryVector.length > 0
+              ? Math.max(0, cosineSimilarity(queryVector, chunk.embedding))
+              : 0;
+          const score =
+            queryVector && chunk.embedding && chunk.embedding.length > 0
+              ? vectorScore * 0.65 + lexicalScore * 0.35
+              : lexicalScore;
 
-      return {
-        chunk: {
-          id: chunk.id,
-          documentId: chunk.documentId,
-          libraryId: chunk.libraryId,
-          pageNumber: chunk.pageNumber,
-          sectionTitle: chunk.sectionTitle,
-          chunkIndex: chunk.chunkIndex,
-          content: chunk.content,
-        },
-        documentTitle: docMeta.filename,
-        fileType: docMeta.fileType,
-        folderName,
-        score,
-        lexicalScore,
-        vectorScore,
-      };
-    });
+          return {
+            chunk: {
+              id: chunk.id,
+              documentId: chunk.documentId,
+              libraryId: library.id,
+              pageNumber: chunk.pageNumber,
+              sectionTitle: chunk.sectionTitle,
+              chunkIndex: chunk.chunkIndex,
+              content: chunk.content,
+            },
+            documentTitle: docMeta.filename,
+            fileType: docMeta.fileType,
+            libraryId: library.id,
+            libraryName: library.name,
+            folderName,
+            score,
+            lexicalScore,
+            vectorScore,
+          };
+        })
+    );
 
     ranked.sort((a, b) => b.score - a.score);
 
+    const candidateWindow = libraries.length > 1 ? 10 : 6;
     const topCandidates = ranked
-      .slice(0, 6)
+      .slice(0, candidateWindow)
       .filter((item) => {
         if (queryVector && item.vectorScore > 0) {
           return (
@@ -1396,20 +1439,23 @@ export async function askLibraryQuestion(params: {
         }
         return item.lexicalScore >= 0.2;
       })
-      .map(({ chunk, documentTitle, fileType, folderName, score }) => ({
+      .map(({ chunk, documentTitle, fileType, libraryId, libraryName, folderName, score }) => ({
         chunk,
         documentTitle,
         fileType,
+        libraryId,
+        libraryName,
         folderName,
         score,
       }));
 
     return await api.answerFromCandidates({
-      libraryId: library.id,
-      libraryName: library.name,
-      vectorStoreId: library.vectorStoreId,
-      readyDocumentsSearched: readyDocs.length,
-      processingDocumentsSkipped: processingDocs.length,
+      libraryId: primaryLibrary.id,
+      libraryName: scopeDisplayName,
+      vectorStoreId: primaryLibrary.vectorStoreId,
+      libraries: libraryScope,
+      readyDocumentsSearched: totalReadyDocs,
+      processingDocumentsSkipped: totalProcessingDocs,
       question,
       history,
       candidates: topCandidates,
@@ -1418,6 +1464,24 @@ export async function askLibraryQuestion(params: {
     if (err instanceof Error && !err.message.includes('Missing or insufficient permissions')) {
       throw err;
     }
-    handleFirestoreError(err, OperationType.LIST, `libraries/${library.id}`);
+    handleFirestoreError(
+      err,
+      OperationType.LIST,
+      libraries.map((l) => `libraries/${l.id}`).join(',')
+    );
   }
+}
+
+export async function askLibraryQuestion(params: {
+  userId: string;
+  library: KnowledgeLibrary;
+  question: string;
+  history: Array<{ role: 'user' | 'assistant'; content: string }>;
+}): Promise<AskResponse> {
+  return askLibrariesQuestion({
+    userId: params.userId,
+    libraries: [params.library],
+    question: params.question,
+    history: params.history,
+  });
 }

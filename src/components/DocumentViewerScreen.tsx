@@ -223,7 +223,7 @@ export const DocumentViewerScreen: React.FC<DocumentViewerScreenProps> = ({
               className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-[#2563EB] hover:underline whitespace-nowrap"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
-              Back to Ask AI
+              Back to Ask BIQ
             </button>
           )}
         </div>

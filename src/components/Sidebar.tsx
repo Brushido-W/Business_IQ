@@ -29,7 +29,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     label: string;
     icon: React.ComponentType<{ className?: string }>;
   }> = [
-    { id: 'ask', label: 'Ask AI', icon: MessageSquareMore },
+    { id: 'ask', label: 'Ask BIQ', icon: MessageSquareMore },
     { id: 'libraries', label: 'Knowledge Libraries', icon: Folder },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];

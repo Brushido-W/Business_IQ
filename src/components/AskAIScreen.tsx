@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -13,6 +14,7 @@ import {
   Search,
   Send,
   Trash2,
+  X,
   XCircle,
 } from 'lucide-react';
 import { ChatMessage, Citation, KnowledgeLibrary } from '../types/knowledge.ts';
@@ -20,8 +22,8 @@ import { AssistantBadgeIcon } from './BrandIcons.tsx';
 
 interface AskAIScreenProps {
   libraries: KnowledgeLibrary[];
-  selectedLibraryId: string | null;
-  onSelectLibrary: (libraryId: string) => void;
+  selectedLibraryIds: string[];
+  onChangeSelectedLibraries: (libraryIds: string[]) => void;
   messages: ChatMessage[];
   isAsking: boolean;
   onSendQuestion: (question: string) => Promise<void>;
@@ -118,14 +120,13 @@ function FormattedAnswer({ content }: { content: string }) {
 }
 
 const RETRIEVAL_STAGES = [
-  'Searching your documents...',
+  'Searching selected libraries...',
   'Retrieving relevant content',
   'Analyzing supporting evidence',
   'Preparing grounded answer',
 ];
 
-function getSuggestedQuestions(library: KnowledgeLibrary | undefined): string[] {
-  if (!library) return [];
+function getSuggestedQuestionsForLibrary(library: KnowledgeLibrary): string[] {
   const name = library.name.toLowerCase();
   if (name.includes('sop') || name.includes('procedure')) {
     return [
@@ -156,10 +157,26 @@ function getSuggestedQuestions(library: KnowledgeLibrary | undefined): string[] 
   return [`Summarize the key guidelines documented in ${library.name}.`];
 }
 
+function getSuggestedQuestions(selectedLibraries: KnowledgeLibrary[]): string[] {
+  if (selectedLibraries.length === 0) return [];
+  const seen = new Set<string>();
+  const combined: string[] = [];
+  for (const lib of selectedLibraries) {
+    for (const q of getSuggestedQuestionsForLibrary(lib)) {
+      if (!seen.has(q)) {
+        seen.add(q);
+        combined.push(q);
+      }
+      if (combined.length >= 4) return combined;
+    }
+  }
+  return combined;
+}
+
 export const AskAIScreen: React.FC<AskAIScreenProps> = ({
   libraries,
-  selectedLibraryId,
-  onSelectLibrary,
+  selectedLibraryIds,
+  onChangeSelectedLibraries,
   messages,
   isAsking,
   onSendQuestion,
@@ -176,7 +193,21 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const selectedLibrary = libraries.find((l) => l.id === selectedLibraryId);
+  const selectedLibraries = libraries.filter((l) => selectedLibraryIds.includes(l.id));
+  const hasSelection = selectedLibraries.length > 0;
+  const allSelected = libraries.length > 0 && selectedLibraries.length === libraries.length;
+
+  const totalReadyDocs = selectedLibraries.reduce(
+    (sum, lib) => sum + (lib.readyDocumentCount ?? 0),
+    0
+  );
+  const totalProcessingDocs = selectedLibraries.reduce(
+    (sum, lib) => sum + (lib.processingDocumentCount ?? 0),
+    0
+  );
+  const emptySelectedLibraries = selectedLibraries.filter(
+    (lib) => (lib.documentCount ?? 0) === 0
+  );
 
   useEffect(() => {
     const handleOutside = (e: MouseEvent) => {
@@ -208,10 +239,26 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
     };
   }, [isAsking]);
 
+  const toggleLibraryId = (libraryId: string) => {
+    if (selectedLibraryIds.includes(libraryId)) {
+      onChangeSelectedLibraries(selectedLibraryIds.filter((id) => id !== libraryId));
+    } else {
+      onChangeSelectedLibraries([...selectedLibraryIds, libraryId]);
+    }
+  };
+
+  const handleSelectAll = () => {
+    onChangeSelectedLibraries(libraries.map((l) => l.id));
+  };
+
+  const handleClearSelection = () => {
+    onChangeSelectedLibraries([]);
+  };
+
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const trimmed = input.trim();
-    if (!trimmed || !selectedLibrary || isAsking) return;
+    if (!trimmed || !hasSelection || isAsking) return;
     setInput('');
     await onSendQuestion(trimmed);
   };
@@ -223,42 +270,55 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
     }));
   };
 
-  const suggestions = getSuggestedQuestions(selectedLibrary);
+  const getSelectorLabel = () => {
+    if (selectedLibraries.length === 0) return 'Select knowledge libraries';
+    if (selectedLibraries.length === 1) return selectedLibraries[0].name;
+    if (allSelected && libraries.length > 1) {
+      return `All libraries (${selectedLibraries.length})`;
+    }
+    return `${selectedLibraries[0].name} + ${selectedLibraries.length - 1} more`;
+  };
+
+  const suggestions = getSuggestedQuestions(selectedLibraries);
 
   return (
     <div className="flex flex-col h-full bg-white">
-      {/* Top Header & Library Selector */}
+      {/* Top Header & Multi-Library Selector */}
       <div className="px-5 sm:px-9 pt-6 sm:pt-8 pb-4 border-b border-[#F1F5F9]">
         <h1 className="text-[26px] sm:text-[28px] font-bold tracking-[-0.025em] text-[#0F172A] leading-tight">
-          Ask your knowledge.
+          Ask BIQ.
         </h1>
         <p className="text-[14.5px] text-[#475569] mt-1">
-          Get reliable answers from your documentation.
+          Get reliable, citation-backed answers grounded in one or more of your knowledge libraries.
         </p>
 
-        {/* Library Selector + Clear Chat Row */}
+        {/* Library Multi-Selector + Clear Chat Row */}
         <div className="mt-5 flex flex-col sm:flex-row sm:items-end justify-between gap-3">
           <div className="relative" ref={dropdownRef}>
             <label className="block text-[12.5px] font-semibold text-[#334155] mb-1.5">
-              Knowledge Library
+              Knowledge Libraries
             </label>
             <button
               type="button"
               onClick={() => setDropdownOpen((o) => !o)}
-              className="w-full sm:w-[330px] flex items-center justify-between gap-2 px-3 py-2 bg-white border border-[#CBD5E1] hover:border-[#94A3B8] focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/15 rounded-[8px] transition-colors"
+              className="w-full sm:w-[380px] flex items-center justify-between gap-2 px-3 py-2 bg-white border border-[#CBD5E1] hover:border-[#94A3B8] focus:outline-none focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/15 rounded-[8px] transition-colors"
               aria-haspopup="listbox"
               aria-expanded={dropdownOpen}
             >
               <div className="flex items-center gap-2.5 min-w-0">
                 <Folder className="w-[17px] h-[17px] text-[#2563EB] shrink-0" strokeWidth={2} />
-                <span className="text-[13.5px] font-semibold text-[#0F172A] truncate">
-                  {selectedLibrary ? selectedLibrary.name : 'Select a knowledge library'}
+                <span
+                  className={`text-[13.5px] font-semibold truncate ${
+                    hasSelection ? 'text-[#0F172A]' : 'text-[#64748B]'
+                  }`}
+                >
+                  {getSelectorLabel()}
                 </span>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                {selectedLibrary && (
-                  <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#DCFCE7] text-[#15803D]">
-                    Selected
+                {selectedLibraries.length > 0 && (
+                  <span className="px-2 py-0.5 rounded-[5px] text-[11px] font-semibold bg-[#EFF6FF] text-[#1D4ED8] border border-[#BFDBFE] tabular-nums">
+                    {selectedLibraries.length} selected
                   </span>
                 )}
                 <ChevronDown
@@ -269,15 +329,41 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
               </div>
             </button>
 
-            {/* Dropdown Menu */}
+            {/* Multi-Select Dropdown Menu */}
             {dropdownOpen && (
               <div
-                className="absolute left-0 mt-1.5 w-full sm:w-[360px] bg-white border border-[#E2E8F0] rounded-[10px] shadow-[0_8px_24px_rgba(15,23,42,0.1)] z-30 py-1.5"
+                className="absolute left-0 mt-1.5 w-full sm:w-[400px] bg-white border border-[#E2E8F0] rounded-[10px] shadow-[0_8px_24px_rgba(15,23,42,0.1)] z-30 overflow-hidden"
                 role="listbox"
+                aria-multiselectable="true"
               >
-                <div className="px-3 py-1.5 text-[11.5px] font-semibold text-[#64748B] border-b border-[#F1F5F9]">
-                  Isolated Knowledge Libraries
+                <div className="px-3 py-2 border-b border-[#F1F5F9] flex items-center justify-between gap-2 bg-[#F8FAFC]/70">
+                  <span className="text-[11.5px] font-semibold text-[#64748B]">
+                    Select one or more libraries
+                  </span>
+                  {libraries.length > 0 && (
+                    <div className="flex items-center gap-2.5 text-[11.5px] font-semibold">
+                      {!allSelected && (
+                        <button
+                          type="button"
+                          onClick={handleSelectAll}
+                          className="text-[#2563EB] hover:underline"
+                        >
+                          Select all
+                        </button>
+                      )}
+                      {selectedLibraries.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleClearSelection}
+                          className="text-[#64748B] hover:text-[#0F172A] hover:underline"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
+
                 {libraries.length === 0 ? (
                   <div className="p-4 text-center">
                     <p className="text-[13px] text-[#475569]">No knowledge libraries yet.</p>
@@ -294,46 +380,62 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
                     </button>
                   </div>
                 ) : (
-                  <div className="max-h-[260px] overflow-y-auto py-1">
-                    {libraries.map((lib) => {
-                      const isCurrent = lib.id === selectedLibraryId;
-                      return (
-                        <button
-                          key={lib.id}
-                          type="button"
-                          onClick={() => {
-                            onSelectLibrary(lib.id);
-                            setDropdownOpen(false);
-                          }}
-                          className={`w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors ${
-                            isCurrent ? 'bg-[#EFF6FF]' : 'hover:bg-[#F8FAFC]'
-                          }`}
-                          role="option"
-                          aria-selected={isCurrent}
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <Folder
-                              className="w-4 h-4 text-[#2563EB] shrink-0"
-                              strokeWidth={2}
-                            />
-                            <div className="min-w-0">
-                              <div className="text-[13.5px] font-semibold text-[#0F172A] truncate">
-                                {lib.name}
-                              </div>
-                              <div className="text-[11.5px] text-[#64748B] tabular-nums">
-                                {lib.readyDocumentCount ?? 0} ready · {lib.documentCount ?? 0} total docs
+                  <>
+                    <div className="max-h-[260px] overflow-y-auto py-1">
+                      {libraries.map((lib) => {
+                        const isChecked = selectedLibraryIds.includes(lib.id);
+                        return (
+                          <button
+                            key={lib.id}
+                            type="button"
+                            onClick={() => toggleLibraryId(lib.id)}
+                            className={`w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors ${
+                              isChecked ? 'bg-[#EFF6FF]/75 hover:bg-[#EFF6FF]' : 'hover:bg-[#F8FAFC]'
+                            }`}
+                            role="option"
+                            aria-selected={isChecked}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <span
+                                className={`w-4 h-4 rounded-[4px] border flex items-center justify-center shrink-0 transition-colors ${
+                                  isChecked
+                                    ? 'bg-[#2563EB] border-[#2563EB] text-white'
+                                    : 'bg-white border-[#CBD5E1]'
+                                }`}
+                              >
+                                {isChecked && <Check className="w-3 h-3" strokeWidth={3} />}
+                              </span>
+                              <Folder
+                                className="w-4 h-4 text-[#2563EB] shrink-0"
+                                strokeWidth={2}
+                              />
+                              <div className="min-w-0">
+                                <div className="text-[13.5px] font-semibold text-[#0F172A] truncate">
+                                  {lib.name}
+                                </div>
+                                <div className="text-[11.5px] text-[#64748B] tabular-nums">
+                                  {lib.readyDocumentCount ?? 0} ready · {lib.documentCount ?? 0} total docs
+                                </div>
                               </div>
                             </div>
-                          </div>
-                          {isCurrent && (
-                            <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#DCFCE7] text-[#15803D] shrink-0">
-                              Selected
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="px-3 py-2 border-t border-[#F1F5F9] bg-[#F8FAFC]/70 flex items-center justify-between">
+                      <span className="text-[11.5px] text-[#64748B] tabular-nums">
+                        {selectedLibraries.length} of {libraries.length} selected
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setDropdownOpen(false)}
+                        className="px-3 py-1 rounded-[6px] text-[12px] font-semibold text-white bg-[#2563EB] hover:bg-[#1D4ED8] transition-colors"
+                      >
+                        Done
+                      </button>
+                    </div>
+                  </>
                 )}
               </div>
             )}
@@ -350,6 +452,32 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
           </button>
         </div>
 
+        {/* Active Multi-Library Scope Tags */}
+        {selectedLibraries.length > 1 && (
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            <span className="text-[11.5px] font-medium text-[#64748B] mr-1">
+              Searching in:
+            </span>
+            {selectedLibraries.map((lib) => (
+              <span
+                key={lib.id}
+                className="inline-flex items-center gap-1.5 pl-2 pr-1 py-0.5 rounded-[6px] bg-[#EFF6FF] border border-[#BFDBFE] text-[12px] font-medium text-[#1D4ED8]"
+              >
+                <Folder className="w-3 h-3 shrink-0" />
+                <span className="max-w-[180px] truncate">{lib.name}</span>
+                <button
+                  type="button"
+                  onClick={() => toggleLibraryId(lib.id)}
+                  aria-label={`Remove ${lib.name} from search scope`}
+                  className="p-0.5 rounded-[4px] text-[#3B82F6] hover:text-[#1E3A8A] hover:bg-[#DBEAFE] transition-colors"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* Contextual Status Notices */}
         {!geminiConfigured && (
           <div className="mt-3.5 flex items-start gap-2.5 px-3.5 py-2.5 rounded-[8px] bg-[#FEF2F2] border border-[#FECACA] text-[13px] text-[#991B1B]">
@@ -360,24 +488,34 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
           </div>
         )}
 
-        {selectedLibrary && (selectedLibrary.processingDocumentCount ?? 0) > 0 && (
+        {hasSelection && totalProcessingDocs > 0 && (
           <div className="mt-3 flex items-center gap-2 px-3.5 py-2 rounded-[8px] bg-[#EFF6FF] border border-[#BFDBFE] text-[12.5px] text-[#1D4ED8]">
             <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
             <span>
-              {selectedLibrary.processingDocumentCount} document
-              {selectedLibrary.processingDocumentCount === 1 ? ' is' : 's are'} currently indexing
-              in <strong>{selectedLibrary.name}</strong> and will become searchable once Ready.
+              {totalProcessingDocs} document
+              {totalProcessingDocs === 1 ? ' is' : 's are'} currently indexing across your
+              selected {selectedLibraries.length === 1 ? 'library' : 'libraries'} and will become
+              searchable once Ready.
             </span>
           </div>
         )}
 
-        {selectedLibrary && (selectedLibrary.documentCount ?? 0) === 0 && (
+        {hasSelection && emptySelectedLibraries.length > 0 && totalReadyDocs === 0 && (
           <div className="mt-3 flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-[8px] bg-[#F8FAFC] border border-[#E2E8F0] text-[13px] text-[#475569]">
             <div className="flex items-center gap-2">
               <Info className="w-4 h-4 text-[#2563EB] shrink-0" />
               <span>
-                <strong>{selectedLibrary.name}</strong> has no uploaded documents yet. Upload files
-                before asking questions.
+                {selectedLibraries.length === 1 ? (
+                  <>
+                    <strong>{selectedLibraries[0].name}</strong> has no uploaded documents yet.
+                    Upload files before asking questions.
+                  </>
+                ) : (
+                  <>
+                    The selected libraries have no uploaded documents yet. Upload files before asking
+                    questions.
+                  </>
+                )}
               </span>
             </div>
             <button
@@ -398,17 +536,23 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
             <div className="py-10 sm:py-14 flex flex-col items-center text-center">
               <AssistantBadgeIcon className="w-11 h-11 mb-4" />
               <h2 className="text-[17px] font-bold text-[#0F172A]">
-                {selectedLibrary
-                  ? `Ask anything in "${selectedLibrary.name}"`
-                  : 'Select a Knowledge Library to begin'}
+                {selectedLibraries.length === 0
+                  ? 'Select Knowledge Libraries to begin'
+                  : selectedLibraries.length === 1
+                  ? `Ask BIQ about "${selectedLibraries[0].name}"`
+                  : `Ask BIQ across ${selectedLibraries.length} libraries`}
               </h2>
-              <p className="text-[13.5px] text-[#64748B] max-w-[460px] mt-1.5 leading-relaxed">
-                {selectedLibrary
-                  ? `Answers are strictly retrieved from the ${selectedLibrary.readyDocumentCount ?? 0} indexed documents in this library. Other libraries are never searched.`
-                  : 'Choose an isolated knowledge library above or create a new library to upload documentation.'}
+              <p className="text-[13.5px] text-[#64748B] max-w-[500px] mt-1.5 leading-relaxed">
+                {selectedLibraries.length === 0
+                  ? 'Choose one or more knowledge libraries above or create a new library to upload documentation.'
+                  : selectedLibraries.length === 1
+                  ? `Answers are strictly retrieved from the ${totalReadyDocs} indexed documents in this library. Unselected libraries are never searched.`
+                  : `Answers are synthesized strictly from the ${totalReadyDocs} indexed documents across ${selectedLibraries
+                      .map((l) => l.name)
+                      .join(', ')}. Unselected libraries are never searched.`}
               </p>
 
-              {selectedLibrary && suggestions.length > 0 && (
+              {hasSelection && suggestions.length > 0 && (
                 <div className="mt-6 flex flex-wrap items-center justify-center gap-2 max-w-[680px]">
                   {suggestions.map((q) => (
                     <button
@@ -442,6 +586,7 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
 
             const isExpanded = expandedSources[msg.id] !== false;
             const citations = msg.citations || [];
+            const isMultiLibMsg = (msg.libraryIds?.length ?? 1) > 1;
 
             return (
               <div key={msg.id} className="flex items-start gap-3">
@@ -471,7 +616,7 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
                           <p className="text-[12px] text-[#64748B] mt-1.5">
                             Searched exclusively inside{' '}
                             <span className="font-semibold text-[#334155]">{msg.libraryName}</span>.
-                            No external knowledge or other libraries were used.
+                            No external knowledge or unselected libraries were used.
                           </p>
                         </div>
                       </div>
@@ -485,7 +630,7 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
                       </div>
                     )}
 
-                    {/* Sources Accordion Card (1:1 Match with Screenshot 2 Screen 1) */}
+                    {/* Sources Accordion Card */}
                     {citations.length > 0 && (
                       <div className="mt-3.5 bg-[#EFF4FA] border border-[#E2E8F0] rounded-[8px] px-3.5 py-2.5">
                         <button
@@ -517,7 +662,9 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
                                   </span>
                                 </div>
                                 <span className="text-[12px] text-[#475569] shrink-0 tabular-nums">
-                                  {cit.pageLabel}
+                                  {cit.libraryName && isMultiLibMsg
+                                    ? `${cit.libraryName} · ${cit.pageLabel}`
+                                    : cit.pageLabel}
                                 </span>
                               </button>
                             ))}
@@ -527,16 +674,18 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
                     )}
                   </div>
 
-                  <div className="mt-1.5 flex items-center justify-between text-[11px] text-[#64748B] px-0.5">
-                    <span>Library: {msg.libraryName}</span>
-                    <span className="tabular-nums">{msg.timestamp}</span>
+                  <div className="mt-1.5 flex items-center justify-between gap-3 text-[11px] text-[#64748B] px-0.5">
+                    <span className="truncate">
+                      {isMultiLibMsg ? 'Libraries' : 'Library'}: {msg.libraryName}
+                    </span>
+                    <span className="tabular-nums shrink-0">{msg.timestamp}</span>
                   </div>
                 </div>
               </div>
             );
           })}
 
-          {/* Live Retrieval Progress Card (Matches Workflow B Step 4) */}
+          {/* Live Retrieval Progress Card */}
           {isAsking && (
             <div className="flex items-start gap-3">
               <AssistantBadgeIcon className="w-8 h-8 mt-0.5" />
@@ -589,10 +738,12 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
             <button
               type="button"
               onClick={onOpenQuickUpload}
-              disabled={!selectedLibrary}
+              disabled={!hasSelection}
               title={
-                selectedLibrary
-                  ? `Upload documents to ${selectedLibrary.name}`
+                selectedLibraries.length === 1
+                  ? `Upload documents to ${selectedLibraries[0].name}`
+                  : selectedLibraries.length > 1
+                  ? `Upload documents to ${selectedLibraries[0].name}`
                   : 'Select a library first'
               }
               className="p-1.5 rounded-[6px] text-[#64748B] hover:text-[#2563EB] hover:bg-[#EFF6FF] disabled:opacity-40 transition-colors shrink-0"
@@ -604,11 +755,13 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              disabled={!selectedLibrary || isAsking}
+              disabled={!hasSelection || isAsking}
               placeholder={
-                selectedLibrary
-                  ? 'Ask a question about the selected knowledge library...'
-                  : 'Select a knowledge library above to ask a question...'
+                selectedLibraries.length === 0
+                  ? 'Select one or more knowledge libraries above to ask BIQ...'
+                  : selectedLibraries.length === 1
+                  ? `Ask BIQ about ${selectedLibraries[0].name}...`
+                  : `Ask BIQ across ${selectedLibraries.length} selected libraries...`
               }
               className="flex-1 bg-transparent text-[14px] text-[#0F172A] placeholder:text-[#94A3B8] focus:outline-none py-1 disabled:cursor-not-allowed"
             />
@@ -616,7 +769,7 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
 
           <button
             type="submit"
-            disabled={!selectedLibrary || !input.trim() || isAsking}
+            disabled={!hasSelection || !input.trim() || isAsking}
             aria-label="Send question"
             className="w-[44px] h-[44px] flex items-center justify-center rounded-[10px] bg-[#2563EB] hover:bg-[#1D4ED8] disabled:bg-[#94A3B8] disabled:cursor-not-allowed text-white transition-colors shrink-0 shadow-[0_1px_2px_rgba(37,99,235,0.25)]"
           >
