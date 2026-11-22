@@ -1,0 +1,363 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated operator profile storing display preferences.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 254
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["userId", "displayName", "createdAt", "updatedAt"]
+    },
+    "KnowledgeLibrary": {
+      "title": "KnowledgeLibrary",
+      "description": "Isolated knowledge library belonging to an authenticated user.",
+      "type": "object",
+      "properties": {
+        "libraryId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "vectorStoreId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "libraryId",
+        "userId",
+        "name",
+        "description",
+        "vectorStoreId",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Folder": {
+      "title": "Folder",
+      "description": "Folder inside a knowledge library owned by the library owner.",
+      "type": "object",
+      "properties": {
+        "folderId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "libraryId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["folderId", "libraryId", "userId", "name", "createdAt", "updatedAt"]
+    },
+    "DocumentRecord": {
+      "title": "DocumentRecord",
+      "description": "Metadata and indexing status for a document inside a knowledge library.",
+      "type": "object",
+      "properties": {
+        "documentId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "libraryId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "folderId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "filename": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "fileType": {
+          "type": "string",
+          "enum": ["pdf", "docx", "txt", "md"]
+        },
+        "mimeType": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "sizeBytes": {
+          "type": "number"
+        },
+        "pageCount": {
+          "type": "number"
+        },
+        "storagePath": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "downloadUrl": {
+          "type": "string",
+          "maxLength": 2048
+        },
+        "storageUploaded": {
+          "type": "boolean"
+        },
+        "providerFileId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "vectorStoreId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "status": {
+          "type": "string",
+          "enum": ["uploading", "processing", "ready", "failed"]
+        },
+        "errorMessage": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "chunkCount": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "documentId",
+        "libraryId",
+        "folderId",
+        "userId",
+        "filename",
+        "fileType",
+        "mimeType",
+        "sizeBytes",
+        "pageCount",
+        "storagePath",
+        "downloadUrl",
+        "storageUploaded",
+        "providerFileId",
+        "vectorStoreId",
+        "status",
+        "errorMessage",
+        "chunkCount",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "DocumentPage": {
+      "title": "DocumentPage",
+      "description": "Extracted page text for rendering in the document viewer.",
+      "type": "object",
+      "properties": {
+        "pageId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "documentId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "libraryId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "pageNumber": {
+          "type": "number"
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 50000
+        }
+      },
+      "required": ["pageId", "documentId", "libraryId", "userId", "pageNumber", "content"]
+    },
+    "DocumentChunk": {
+      "title": "DocumentChunk",
+      "description": "Indexed searchable passage and optional vector embedding scoped to a library.",
+      "type": "object",
+      "properties": {
+        "chunkId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "documentId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "libraryId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "pageNumber": {
+          "type": "number"
+        },
+        "sectionTitle": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "chunkIndex": {
+          "type": "number"
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 10000
+        },
+        "embedding": {
+          "type": "array"
+        }
+      },
+      "required": [
+        "chunkId",
+        "documentId",
+        "libraryId",
+        "userId",
+        "pageNumber",
+        "sectionTitle",
+        "chunkIndex",
+        "content",
+        "embedding"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private operator profile document restricted strictly to the owning user."
+    },
+    "/libraries/{libraryId}": {
+      "schema": { "$ref": "#/entities/KnowledgeLibrary" },
+      "description": "Top-level knowledge libraries owned by authenticated users."
+    },
+    "/libraries/{libraryId}/folders/{folderId}": {
+      "schema": { "$ref": "#/entities/Folder" },
+      "description": "Folders belonging to a parent knowledge library and its owner."
+    },
+    "/libraries/{libraryId}/documents/{documentId}": {
+      "schema": { "$ref": "#/entities/DocumentRecord" },
+      "description": "Documents belonging to a parent knowledge library and its owner."
+    },
+    "/libraries/{libraryId}/documents/{documentId}/pages/{pageId}": {
+      "schema": { "$ref": "#/entities/DocumentPage" },
+      "description": "Extracted pages for a document inside a knowledge library."
+    },
+    "/libraries/{libraryId}/chunks/{chunkId}": {
+      "schema": { "$ref": "#/entities/DocumentChunk" },
+      "description": "Indexed searchable text chunks for RAG scoped strictly to a library."
+    }
+  }
+}

@@ -1,0 +1,351 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Reusable Hardened Primitives ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function libraryExistsAndOwned(libraryId) {
+      return exists(/databases/$(database)/documents/libraries/$(libraryId)) &&
+        get(/databases/$(database)/documents/libraries/$(libraryId)).data.userId == request.auth.uid;
+    }
+
+    function folderExistsInLibrary(libraryId, folderId) {
+      return exists(/databases/$(database)/documents/libraries/$(libraryId)/folders/$(folderId)) &&
+        get(/databases/$(database)/documents/libraries/$(libraryId)/folders/$(folderId)).data.userId == request.auth.uid;
+    }
+
+    function documentExistsInLibrary(libraryId, documentId) {
+      return exists(/databases/$(database)/documents/libraries/$(libraryId)/documents/$(documentId)) &&
+        get(/databases/$(database)/documents/libraries/$(libraryId)/documents/$(documentId)).data.userId == request.auth.uid;
+    }
+
+    // --- Entity Validation Blueprints ---
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['userId', 'displayName', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['userId', 'displayName', 'email', 'photoURL', 'createdAt', 'updatedAt']) &&
+        isValidId(data.userId) &&
+        data.userId == request.auth.uid &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 60 &&
+        (!('email' in data) || data.email == null || (data.email is string && data.email.size() <= 254)) &&
+        (!('photoURL' in data) || data.photoURL == null || (data.photoURL is string && data.photoURL.size() <= 500)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidLibrary(data) {
+      return data.keys().hasAll(['libraryId', 'userId', 'name', 'description', 'vectorStoreId', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['libraryId', 'userId', 'name', 'description', 'vectorStoreId', 'createdAt', 'updatedAt']) &&
+        isValidId(data.libraryId) &&
+        isValidId(data.userId) &&
+        data.userId == request.auth.uid &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        data.description is string && data.description.size() <= 400 &&
+        data.vectorStoreId is string && data.vectorStoreId.size() >= 1 && data.vectorStoreId.size() <= 160 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidFolder(data) {
+      return data.keys().hasAll(['folderId', 'libraryId', 'userId', 'name', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['folderId', 'libraryId', 'userId', 'name', 'createdAt', 'updatedAt']) &&
+        isValidId(data.folderId) &&
+        isValidId(data.libraryId) &&
+        isValidId(data.userId) &&
+        data.userId == request.auth.uid &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidDocument(data) {
+      return data.keys().hasAll([
+          'documentId', 'libraryId', 'folderId', 'userId', 'filename', 'fileType',
+          'mimeType', 'sizeBytes', 'pageCount', 'storagePath', 'downloadUrl',
+          'storageUploaded', 'providerFileId', 'vectorStoreId', 'status',
+          'errorMessage', 'chunkCount', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'documentId', 'libraryId', 'folderId', 'userId', 'filename', 'fileType',
+          'mimeType', 'sizeBytes', 'pageCount', 'storagePath', 'downloadUrl',
+          'storageUploaded', 'providerFileId', 'vectorStoreId', 'status',
+          'errorMessage', 'chunkCount', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.documentId) &&
+        isValidId(data.libraryId) &&
+        (data.folderId == null || isValidId(data.folderId)) &&
+        isValidId(data.userId) &&
+        data.userId == request.auth.uid &&
+        data.filename is string && data.filename.size() >= 1 && data.filename.size() <= 180 &&
+        data.fileType in ['pdf', 'docx', 'txt', 'md'] &&
+        data.mimeType is string && data.mimeType.size() >= 1 && data.mimeType.size() <= 128 &&
+        data.sizeBytes is int && data.sizeBytes >= 0 && data.sizeBytes <= 26214400 &&
+        data.pageCount is int && data.pageCount >= 0 && data.pageCount <= 5000 &&
+        (data.storagePath == null || (data.storagePath is string && data.storagePath.size() <= 512)) &&
+        (data.downloadUrl == null || (data.downloadUrl is string && data.downloadUrl.size() <= 2048)) &&
+        data.storageUploaded is bool &&
+        data.providerFileId is string && data.providerFileId.size() >= 1 && data.providerFileId.size() <= 160 &&
+        data.vectorStoreId is string && data.vectorStoreId.size() >= 1 && data.vectorStoreId.size() <= 160 &&
+        data.status in ['uploading', 'processing', 'ready', 'failed'] &&
+        (data.errorMessage == null || (data.errorMessage is string && data.errorMessage.size() <= 500)) &&
+        data.chunkCount is int && data.chunkCount >= 0 && data.chunkCount <= 10000 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidDocumentPage(data) {
+      return data.keys().hasAll(['pageId', 'documentId', 'libraryId', 'userId', 'pageNumber', 'content']) &&
+        data.keys().hasOnly(['pageId', 'documentId', 'libraryId', 'userId', 'pageNumber', 'content']) &&
+        isValidId(data.pageId) &&
+        isValidId(data.documentId) &&
+        isValidId(data.libraryId) &&
+        isValidId(data.userId) &&
+        data.userId == request.auth.uid &&
+        data.pageNumber is int && data.pageNumber >= 1 && data.pageNumber <= 5000 &&
+        data.content is string && data.content.size() <= 50000;
+    }
+
+    function isValidDocumentChunk(data) {
+      return data.keys().hasAll([
+          'chunkId', 'documentId', 'libraryId', 'userId', 'pageNumber',
+          'sectionTitle', 'chunkIndex', 'content', 'embedding'
+        ]) &&
+        data.keys().hasOnly([
+          'chunkId', 'documentId', 'libraryId', 'userId', 'pageNumber',
+          'sectionTitle', 'chunkIndex', 'content', 'embedding'
+        ]) &&
+        isValidId(data.chunkId) &&
+        isValidId(data.documentId) &&
+        isValidId(data.libraryId) &&
+        isValidId(data.userId) &&
+        data.userId == request.auth.uid &&
+        data.pageNumber is int && data.pageNumber >= 1 && data.pageNumber <= 5000 &&
+        (data.sectionTitle == null || (data.sectionTitle is string && data.sectionTitle.size() <= 200)) &&
+        data.chunkIndex is int && data.chunkIndex >= 0 && data.chunkIndex <= 10000 &&
+        data.content is string && data.content.size() >= 1 && data.content.size() <= 10000 &&
+        data.embedding is list && data.embedding.size() <= 4096 &&
+        (data.embedding.size() == 0 || data.embedding[0] is float || data.embedding[0] is int);
+    }
+
+    // --- Collection Rules ---
+
+    // User Profiles (PII Isolated)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if false;
+      allow create: if isVerifiedUser() &&
+        isValidId(userId) &&
+        isOwner(userId) &&
+        isValidUserProfile(incoming()) &&
+        incoming().userId == userId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser() &&
+        isValidId(userId) &&
+        isOwner(userId) &&
+        isValidUserProfile(incoming()) &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'email', 'photoURL', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    // Knowledge Libraries
+    match /libraries/{libraryId} {
+      allow get: if isSignedIn() && isValidId(libraryId) && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isVerifiedUser() &&
+        isValidId(libraryId) &&
+        isValidLibrary(incoming()) &&
+        incoming().libraryId == libraryId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser() &&
+        isValidId(libraryId) &&
+        isValidLibrary(incoming()) &&
+        existing().userId == request.auth.uid &&
+        incoming().userId == existing().userId &&
+        incoming().libraryId == existing().libraryId &&
+        incoming().vectorStoreId == existing().vectorStoreId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'updatedAt']);
+      allow delete: if isVerifiedUser() && isValidId(libraryId) && existing().userId == request.auth.uid;
+
+      // Folders Subcollection
+      match /folders/{folderId} {
+        allow get: if isSignedIn() && isValidId(libraryId) && isValidId(folderId) &&
+          existing().userId == request.auth.uid &&
+          libraryExistsAndOwned(libraryId);
+        allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+        allow create: if isVerifiedUser() &&
+          isValidId(libraryId) &&
+          isValidId(folderId) &&
+          isValidFolder(incoming()) &&
+          incoming().folderId == folderId &&
+          incoming().libraryId == libraryId &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          libraryExistsAndOwned(libraryId);
+        allow update: if isVerifiedUser() &&
+          isValidId(libraryId) &&
+          isValidId(folderId) &&
+          isValidFolder(incoming()) &&
+          existing().userId == request.auth.uid &&
+          incoming().userId == existing().userId &&
+          incoming().folderId == existing().folderId &&
+          incoming().libraryId == existing().libraryId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'updatedAt']) &&
+          libraryExistsAndOwned(libraryId);
+        allow delete: if isVerifiedUser() && isValidId(libraryId) && isValidId(folderId) &&
+          existing().userId == request.auth.uid &&
+          libraryExistsAndOwned(libraryId);
+      }
+
+      // Documents Subcollection
+      match /documents/{documentId} {
+        allow get: if isSignedIn() && isValidId(libraryId) && isValidId(documentId) &&
+          existing().userId == request.auth.uid &&
+          libraryExistsAndOwned(libraryId);
+        allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+        allow create: if isVerifiedUser() &&
+          isValidId(libraryId) &&
+          isValidId(documentId) &&
+          isValidDocument(incoming()) &&
+          incoming().documentId == documentId &&
+          incoming().libraryId == libraryId &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          libraryExistsAndOwned(libraryId) &&
+          (incoming().folderId == null || folderExistsInLibrary(libraryId, incoming().folderId));
+        allow update: if isVerifiedUser() &&
+          isValidId(libraryId) &&
+          isValidId(documentId) &&
+          isValidDocument(incoming()) &&
+          existing().userId == request.auth.uid &&
+          incoming().userId == existing().userId &&
+          incoming().documentId == existing().documentId &&
+          incoming().libraryId == existing().libraryId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          libraryExistsAndOwned(libraryId) &&
+          (
+            // Action: Rename document
+            (incoming().diff(existing()).affectedKeys().hasOnly(['filename', 'updatedAt'])) ||
+            // Action: Move document to folder (or unassign on folder delete)
+            (
+              incoming().diff(existing()).affectedKeys().hasOnly(['folderId', 'updatedAt']) &&
+              (incoming().folderId == null || folderExistsInLibrary(libraryId, incoming().folderId))
+            ) ||
+            // Action: Complete indexing (from uploading/processing -> ready)
+            (
+              existing().status in ['uploading', 'processing'] &&
+              incoming().status == 'ready' &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['pageCount', 'chunkCount', 'status', 'errorMessage', 'updatedAt'])
+            ) ||
+            // Action: Fail indexing (from uploading/processing -> failed)
+            (
+              existing().status in ['uploading', 'processing'] &&
+              incoming().status == 'failed' &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['status', 'errorMessage', 'updatedAt'])
+            ) ||
+            // Action: Retry indexing (from failed -> processing)
+            (
+              existing().status == 'failed' &&
+              incoming().status == 'processing' &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['status', 'errorMessage', 'updatedAt'])
+            ) ||
+            // Action: Attach storage upload metadata while uploading/processing
+            (
+              existing().status in ['uploading', 'processing'] &&
+              incoming().status in ['uploading', 'processing'] &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['storagePath', 'downloadUrl', 'storageUploaded', 'status', 'updatedAt'])
+            )
+          );
+        allow delete: if isVerifiedUser() && isValidId(libraryId) && isValidId(documentId) &&
+          existing().userId == request.auth.uid &&
+          libraryExistsAndOwned(libraryId);
+
+        // Document Pages Subcollection
+        match /pages/{pageId} {
+          allow get: if isSignedIn() && isValidId(libraryId) && isValidId(documentId) && isValidId(pageId) &&
+            existing().userId == request.auth.uid &&
+            documentExistsInLibrary(libraryId, documentId);
+          allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+          allow create: if isVerifiedUser() &&
+            isValidId(libraryId) &&
+            isValidId(documentId) &&
+            isValidId(pageId) &&
+            isValidDocumentPage(incoming()) &&
+            incoming().pageId == pageId &&
+            incoming().documentId == documentId &&
+            incoming().libraryId == libraryId &&
+            documentExistsInLibrary(libraryId, documentId);
+          allow update: if false;
+          allow delete: if isVerifiedUser() && isValidId(libraryId) && isValidId(documentId) && isValidId(pageId) &&
+            existing().userId == request.auth.uid &&
+            libraryExistsAndOwned(libraryId);
+        }
+      }
+
+      // Chunks Subcollection (Library-Isolated RAG)
+      match /chunks/{chunkId} {
+        allow get: if isSignedIn() && isValidId(libraryId) && isValidId(chunkId) &&
+          existing().userId == request.auth.uid &&
+          libraryExistsAndOwned(libraryId);
+        allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+        allow create: if isVerifiedUser() &&
+          isValidId(libraryId) &&
+          isValidId(chunkId) &&
+          isValidDocumentChunk(incoming()) &&
+          incoming().chunkId == chunkId &&
+          incoming().libraryId == libraryId &&
+          documentExistsInLibrary(libraryId, incoming().documentId);
+        allow update: if isVerifiedUser() &&
+          isValidId(libraryId) &&
+          isValidId(chunkId) &&
+          isValidDocumentChunk(incoming()) &&
+          existing().userId == request.auth.uid &&
+          incoming().userId == existing().userId &&
+          incoming().chunkId == existing().chunkId &&
+          incoming().documentId == existing().documentId &&
+          incoming().libraryId == existing().libraryId &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['embedding']) &&
+          libraryExistsAndOwned(libraryId);
+        allow delete: if isVerifiedUser() && isValidId(libraryId) && isValidId(chunkId) &&
+          existing().userId == request.auth.uid &&
+          libraryExistsAndOwned(libraryId);
+      }
+    }
+  }
+}

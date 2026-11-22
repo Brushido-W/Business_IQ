@@ -1,0 +1,8 @@
+{
+  "name": "Remix Business IQ — KnowledgeBase AI",
+  "description": "Enterprise Retrieval-Augmented Generation (RAG) workspace for managing isolated knowledge libraries, folders, and documents with strictly grounded, citation-backed answers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

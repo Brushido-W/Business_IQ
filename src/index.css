@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+:root {
+  /* Extracted Forensic Color Palette (1:1 Reference Match) */
+  --biq-sidebar-bg: #0f1829;
+  --biq-sidebar-border: rgba(255, 255, 255, 0.08);
+  --biq-sidebar-hover: rgba(255, 255, 255, 0.06);
+  --biq-sidebar-text: #cbd5e1;
+  --biq-sidebar-muted: #94a3b8;
+
+  --biq-canvas-bg: #ffffff;
+  --biq-surface-subtle: #f8fafc;
+  --biq-surface-muted: #f1f5f9;
+  --biq-border: #e2e8f0;
+  --biq-border-strong: #cbd5e1;
+
+  --biq-text-primary: #0f172a;
+  --biq-text-secondary: #475569;
+  --biq-text-muted: #64748b;
+  --biq-text-placeholder: #94a3b8;
+
+  --biq-blue-primary: #2563eb;
+  --biq-blue-hover: #1d4ed8;
+  --biq-blue-tint: #eff6ff;
+  --biq-blue-bubble: #ebf3ff;
+  --biq-blue-border: #bfdbfe;
+
+  --biq-green-bg: #dcfce7;
+  --biq-green-text: #15803d;
+  --biq-info-bg: #dbeafe;
+  --biq-info-text: #1d4ed8;
+  --biq-red-bg: #fee2e2;
+  --biq-red-text: #b91c1c;
+  --biq-highlight-bg: #fef08a;
+
+  /* Typography */
+  --biq-font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --biq-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+
+  /* Radii */
+  --biq-radius-sm: 6px;
+  --biq-radius-md: 8px;
+  --biq-radius-lg: 12px;
+}
+
+@layer base {
+  html,
+  body {
+    font-family: var(--biq-font-sans);
+    background-color: var(--biq-canvas-bg);
+    color: var(--biq-text-primary);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  button,
+  a,
+  select {
+    cursor: pointer;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Custom crisp scrollbars matching minimal enterprise aesthetic */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
