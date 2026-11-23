@@ -396,15 +396,23 @@ export function generateStaticGroundedAnswer(payload: StaticAnswerPayload): AskR
     }
   }
 
-  if (extracts.length === 0 && overviewMode) {
+  if (overviewMode && extracts.length < 4) {
+    const existingSet = new Set(extracts.map((e) => e.text.toLowerCase()));
     for (const candidate of candidates.slice(0, 4)) {
       const units = splitChunkIntoUnits(candidate.chunk.content);
-      const firstMeaningful = units.find((u) => u.length >= 16) || candidate.chunk.content.slice(0, 240);
-      extracts.push({
-        text: firstMeaningful,
-        score: candidate.score || 0.35,
-        candidate,
-      });
+      for (const unit of units) {
+        if (unit.length < 16) continue;
+        const key = unit.toLowerCase();
+        if (existingSet.has(key)) continue;
+        existingSet.add(key);
+        extracts.push({
+          text: unit,
+          score: Math.max(0.25, candidate.score * 0.5),
+          candidate,
+        });
+        if (extracts.length >= 6) break;
+      }
+      if (extracts.length >= 6) break;
     }
   }
 

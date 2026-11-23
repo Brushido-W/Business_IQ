@@ -561,8 +561,8 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
                       key={q}
                       type="button"
                       onClick={() => void onSendQuestion(q)}
-                      disabled={isAsking || !geminiConfigured}
-                      className="px-3.5 py-2 text-[13px] text-[#334155] bg-[#F8FAFC] hover:bg-[#EFF6FF] hover:text-[#1D4ED8] border border-[#E2E8F0] hover:border-[#BFDBFE] rounded-[8px] transition-colors text-left"
+                      disabled={isAsking || ragMode === 'unconfigured'}
+                      className="px-3.5 py-2 text-[13px] text-[#334155] bg-[#F8FAFC] hover:bg-[#EFF6FF] hover:text-[#1D4ED8] disabled:opacity-50 disabled:cursor-not-allowed border border-[#E2E8F0] hover:border-[#BFDBFE] rounded-[8px] transition-colors text-left"
                     >
                       {q}
                     </button>
