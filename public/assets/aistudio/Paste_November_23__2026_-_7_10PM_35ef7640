@@ -1,0 +1,856 @@
+BUSINESS IQ — COMPREHENSIVE PRE-DEMONSTRATION SYSTEM AUDIT
+
+1. Role and mandate
+
+Act as a multidisciplinary technical audit team consisting of:
+
+- Senior full-stack software engineer.
+- RAG systems architect.
+- AI reliability engineer.
+- Cybersecurity specialist.
+- Quality assurance engineer.
+- Database architect.
+- DevOps and deployment engineer.
+- Performance optimization specialist.
+- Technical product manager.
+
+Your mandate is to conduct an extensive, meticulous, evidence-based audit of the entire existing Business IQ application in preparation for its upcoming demonstration.
+
+Inspect every accessible source file, configuration file, dependency, integration, component, function and relevant line of code against the intended product objectives.
+
+This is an audit-only assignment, not an implementation assignment.
+
+Do not modify, refactor, delete, replace or generate application code. Do not install dependencies, change configurations, deploy the application or mutate existing user data without explicit authorization.
+
+Identify problems, establish their causes, evaluate their consequences and recommend solutions. Return a comprehensive audit report for review before any corrective action is taken.
+
+2. Product context and intended objective
+
+Business IQ is a conversational Retrieval-Augmented Generation (RAG) knowledge assistant that enables users to:
+
+- Securely authenticate and access their private workspace.
+- Create and manage multiple knowledge libraries.
+- Organize resources, documents and SOPs into folders.
+- Upload and store documentation.
+- Select one or more knowledge libraries.
+- Ask natural-language questions.
+- Retrieve relevant information exclusively from selected libraries.
+- Receive intelligent, synthesized, contextually accurate answers.
+- Inspect verifiable source citations.
+- Receive an explicit insufficient-information response when supporting evidence does not exist.
+
+Business IQ is NOT intended to function merely as a keyword-based document search engine.
+
+Its fundamental value proposition is transforming stored organizational knowledge into accessible, conversational, evidence-grounded intelligence.
+
+For example:
+
+User question:
+"What is an active claimant?"
+
+Expected response:
+"An active claimant is a member who is actively claiming from the Oncology Benefit during the reporting period. [1]"
+
+The response must include the relevant source document.
+
+An unacceptable response would return multiple raw document passages simply because they contain the word "active."
+
+Evaluate every relevant system component against this intended outcome.
+
+3. Operational constraints
+
+The following constraints are non-negotiable:
+
+- Strictly zero financial expenditure.
+- No paid subscriptions or mandatory billing activation.
+- Limited time before the demonstration.
+- Existing application developed using Google AI Studio.
+- Source code maintained through GitHub.
+- Existing GitHub Pages deployment, with alternative free hosting permissible if necessary.
+- Existing Firebase authentication and storage integrations.
+- Free-tier LLM and embedding services.
+- Existing UI/UX and core functionality must be preserved.
+- No confidential business information or patient information should be exposed to unauthorized services.
+- No unnecessary architectural changes.
+
+Prioritize demonstration readiness over production-scale sophistication.
+
+4. Exhaustive source-code coverage protocol
+
+Before beginning the substantive audit:
+
+1. Enumerate the complete accessible project directory.
+2. Identify every source file, configuration file, dependency manifest, database migration, security rule, environment configuration and deployment workflow.
+3. Create a file inventory.
+4. Map dependencies and relationships between files.
+5. Identify application entry points.
+6. Identify frontend and backend boundaries.
+7. Identify all external services and integrations.
+8. Trace how information moves throughout the system.
+
+Inspect every accessible first-party source file line by line.
+
+For each file, determine:
+
+- Its intended responsibility.
+- Whether its implementation fulfills that responsibility.
+- Its relationship to the overall product objective.
+- Its dependencies.
+- Its potential failure points.
+- Its security implications.
+- Its performance implications.
+- Its deployment compatibility.
+- Its impact on demonstration readiness.
+
+Do not inspect only the files that appear immediately relevant.
+
+Review configuration, infrastructure, security rules, utility functions, error handlers, dependencies and supporting files.
+
+For generated files, third-party dependencies, binary assets and lockfiles, use appropriate integrity, compatibility and dependency checks rather than pretending to manually review every generated line.
+
+Maintain an audit coverage ledger containing:
+
+- File path.
+- File purpose.
+- Lines or sections inspected.
+- Review status.
+- Findings identified.
+- Dependencies examined.
+- Verification method.
+- Any inaccessible or unreviewed sections.
+
+If the project exceeds your context capacity, divide the audit into systematic batches and maintain a cumulative coverage ledger.
+
+Do not claim complete coverage until every accessible in-scope file has been accounted for.
+
+Explicitly disclose inaccessible files, unavailable tools and incomplete checks.
+
+5. System architecture audit
+
+Reconstruct the actual architecture from the source code, rather than assuming the intended architecture is implemented.
+
+Map:
+
+- Frontend.
+- Backend.
+- Authentication.
+- Database.
+- Document storage.
+- Document processing.
+- Embedding generation.
+- Vector storage.
+- Retrieval.
+- Relevance ranking.
+- LLM generation.
+- Citation generation.
+- Error handling.
+- Caching.
+- Deployment infrastructure.
+- External APIs.
+
+Identify:
+
+- Architectural inconsistencies.
+- Missing components.
+- Broken connections.
+- Circular dependencies.
+- Single points of failure.
+- Redundant processing.
+- Unnecessary complexity.
+- Environment-specific dependencies.
+- Hidden assumptions.
+- Components that exist in the interface but are not functionally implemented.
+
+Produce an accurate system architecture diagram showing the actual implementation and its failure points.
+
+6. End-to-end data-flow audit
+
+Trace the complete execution path for each critical user journey:
+
+A. Authentication and workspace initialization.
+
+B. Knowledge library creation.
+
+C. Folder creation and management.
+
+D. Document upload.
+
+E. Document extraction and processing.
+
+F. Document chunking and indexing.
+
+G. Embedding generation and storage.
+
+H. Knowledge library selection.
+
+I. Question submission.
+
+J. Relevant evidence retrieval.
+
+K. Answer generation.
+
+L. Citation presentation.
+
+M. Document modification and deletion.
+
+N. Session persistence and application refresh.
+
+For each journey, identify:
+
+- Input.
+- Processing stages.
+- Functions involved.
+- Files involved.
+- External dependencies.
+- Expected output.
+- Actual implemented behavior.
+- Potential failure conditions.
+- Existing recovery mechanisms.
+- Missing safeguards.
+
+Identify where a failure in one stage propagates into subsequent stages.
+
+7. RAG functionality and intelligence audit
+
+Determine whether Business IQ implements genuine Retrieval-Augmented Generation or merely simulates it through keyword matching.
+
+Inspect the complete RAG pipeline.
+
+Document ingestion
+
+Evaluate:
+
+- Supported file formats.
+- Text extraction accuracy.
+- Empty and corrupted file handling.
+- Duplicate document handling.
+- Document chunking strategy.
+- Chunk size and overlap.
+- Metadata preservation.
+- Document processing status.
+- Indexing completeness.
+- Handling of large documents.
+- Failed ingestion recovery.
+
+Embeddings
+
+Evaluate:
+
+- Actual embedding model identifier.
+- Model availability and free-tier eligibility.
+- Embedding dimensions.
+- Vector compatibility.
+- Persistent storage.
+- Unnecessary embedding regeneration.
+- Failed embedding requests.
+- Query and document embedding consistency.
+- Whether uploaded documents are genuinely indexed.
+
+Retrieval
+
+Evaluate:
+
+- Semantic retrieval accuracy.
+- Keyword retrieval accuracy.
+- Hybrid retrieval, if implemented.
+- Relevance thresholds.
+- Ranking methodology.
+- Duplicate results.
+- False-positive matches.
+- False-negative matches.
+- Selected-library filtering.
+- Cross-library contamination.
+- Cross-user data leakage.
+- Retrieval of unrelated passages.
+
+Generation
+
+Evaluate:
+
+- Whether a genuine LLM generation request occurs.
+- Actual generation model identifier.
+- Runtime system instructions.
+- Question-intent interpretation.
+- Answer synthesis quality.
+- Context relevance.
+- Hallucination risks.
+- Unsupported conclusions.
+- Unnecessary raw document reproduction.
+- Handling of insufficient evidence.
+- Handling of conflicting evidence.
+- Citation accuracy.
+- Answer formatting.
+
+Specifically investigate why the application has previously returned raw keyword matches instead of synthesized answers.
+
+Determine whether this originates from:
+
+- Browser-grounded retrieval fallback.
+- Missing backend connectivity.
+- Model failure.
+- Incorrect prompt construction.
+- Poor relevance ranking.
+- Inadequate generation instructions.
+- Incorrect response parsing.
+- Frontend rendering logic.
+- Another verified cause.
+
+Trace the exact execution path responsible.
+
+8. AI model reliability and free-tier audit
+
+Investigate the recurring error:
+
+"The AI model is temporarily experiencing high demand. Please try again in a moment."
+
+Do not assume this message accurately represents the underlying error.
+
+Inspect:
+
+- Actual upstream API error handling.
+- HTTP status codes.
+- API response parsing.
+- Model identifiers.
+- Model availability.
+- API authentication.
+- Project-specific quotas.
+- Requests per minute.
+- Tokens per minute.
+- Daily request limits.
+- Context-window usage.
+- Embedding request frequency.
+- Generation request frequency.
+- Duplicate API calls.
+- Retry behavior.
+- Timeout behavior.
+- Concurrent requests.
+- Fallback model configuration.
+- Error-message accuracy.
+
+Distinguish between:
+
+- Temporary model overload.
+- Rate-limit exhaustion.
+- Daily quota exhaustion.
+- Invalid or unavailable models.
+- Missing API credentials.
+- Unsupported API operations.
+- Backend connectivity failures.
+- Malformed requests.
+- Excessive context.
+- Embedding failures.
+- Generation failures.
+
+Determine whether the system can reliably operate within currently available free-tier limits.
+
+Verify model availability and eligibility using authoritative information where accessible. Do not invent model identifiers, quotas or pricing.
+
+Estimate the number of external AI requests generated by:
+
+- Uploading one document.
+- Uploading multiple documents.
+- Asking one question.
+- Asking a follow-up question.
+- Repeating a previous question.
+- Selecting multiple libraries.
+
+Identify unnecessary requests and opportunities to reduce resource consumption without sacrificing the core RAG objective.
+
+9. Security and privacy audit
+
+Inspect the application for vulnerabilities, including but not limited to:
+
+- Exposed API keys.
+- Hardcoded credentials.
+- Secrets committed to GitHub.
+- Sensitive information in browser bundles.
+- Unauthorized database access.
+- Broken authentication.
+- Broken authorization.
+- Insecure Firebase security rules.
+- Insecure storage rules.
+- Cross-user data leakage.
+- Insecure direct object references.
+- Unauthorized library access.
+- Cross-site scripting.
+- Injection vulnerabilities.
+- Prompt injection through uploaded documents.
+- Prompt injection through user questions.
+- Malicious file uploads.
+- Unsafe file parsing.
+- Sensitive information in logs.
+- Insecure API endpoints.
+- Missing server-side authentication verification.
+- Excessively permissive CORS configuration.
+- Unrestricted API consumption.
+- Dependency vulnerabilities.
+- Accidental exposure of confidential organizational information.
+
+Verify that authenticated users cannot access other users' documents, libraries, answers or cached responses.
+
+Evaluate whether retrieved documents can override system instructions or cause unauthorized information disclosure.
+
+Do not reproduce actual secret values in the report.
+
+Perform only safe, authorized, non-destructive security checks. Do not attack external services or access other users' data.
+
+10. Database and storage audit
+
+Inspect all existing Firebase, Firestore, storage, Supabase or other database-related implementations that are actually present.
+
+Determine which integrations are active, unused, incomplete or redundant.
+
+Evaluate:
+
+- Data models.
+- Database relationships.
+- Document ownership.
+- Library ownership.
+- Security rules.
+- Data persistence.
+- Storage consistency.
+- Missing indexes.
+- Orphaned records.
+- Duplicate records.
+- Document deletion consistency.
+- Stale embeddings.
+- Cache invalidation.
+- Data synchronization.
+- Session persistence.
+- Error recovery.
+- Free-tier storage and operation limits.
+
+Identify any conditions that could cause uploaded knowledge to disappear, become inaccessible or produce outdated answers.
+
+11. Frontend and user-experience audit
+
+Inspect every screen, component and critical interaction.
+
+Evaluate:
+
+- Navigation.
+- Authentication flow.
+- Library selection.
+- Folder management.
+- Document upload.
+- Document processing feedback.
+- Question submission.
+- Loading indicators.
+- Answer presentation.
+- Source citations.
+- Empty states.
+- Error states.
+- Disabled controls.
+- Responsive behavior.
+- Accessibility.
+- Session expiration.
+- Refresh behavior.
+- Duplicate submissions.
+- Unresponsive controls.
+- Broken links.
+- Incorrect status indicators.
+
+Identify misleading interface behavior, including situations where the interface claims an operation succeeded when the underlying process failed.
+
+Evaluate whether a first-time demonstration audience can understand and operate the tool without technical assistance.
+
+12. Performance and bottleneck audit
+
+Identify all significant performance bottlenecks, including:
+
+- Excessive API calls.
+- Repeated document processing.
+- Unnecessary embedding generation.
+- Inefficient database queries.
+- Excessive database reads and writes.
+- Large context payloads.
+- Blocking operations.
+- Slow document parsing.
+- Inefficient retrieval.
+- Unnecessary frontend re-rendering.
+- Large application bundles.
+- Memory leaks.
+- Excessive network requests.
+- Unbounded retries.
+- Race conditions.
+- Concurrent processing conflicts.
+- Slow initialization.
+- External service latency.
+
+Distinguish measured performance problems from theoretical risks.
+
+Where safe testing is possible, measure:
+
+- Application initialization time.
+- Authentication time.
+- Document ingestion time.
+- Retrieval latency.
+- Generation latency.
+- Total answer-response time.
+
+Do not fabricate measurements.
+
+13. Deployment and environment audit
+
+Inspect all relevant deployment files and configurations, including:
+
+- package.json.
+- Dependency lockfiles.
+- Vite configuration.
+- TypeScript configuration.
+- Environment-variable definitions.
+- GitHub Actions workflows.
+- Backend entry points.
+- Firebase configuration.
+- API routes.
+- Build commands.
+- Start commands.
+- Production asset paths.
+- Repository-specific base paths.
+
+Compare behavior across:
+
+1. Google AI Studio development environment.
+2. GitHub repository.
+3. GitHub Pages deployment.
+4. Any proposed free backend hosting environment.
+
+Investigate why Business IQ may switch from Gemini-powered RAG to browser-grounded retrieval after external deployment.
+
+Determine:
+
+- Whether the backend is actually running.
+- Whether API endpoints are accessible.
+- Whether required environment variables exist.
+- Whether Firebase authorization is correctly configured.
+- Whether production requests reach the intended services.
+- Whether deployment-specific fallbacks disable core functionality.
+- Whether frontend and backend configurations are compatible.
+- Whether any required service depends exclusively on AI Studio's managed environment.
+
+Recognize that GitHub Pages is static hosting and cannot execute a persistent Node.js backend.
+
+Identify the minimum viable zero-cost deployment architecture that preserves genuine RAG functionality.
+
+Do not perform a deployment or change the architecture during this audit.
+
+14. Failure-mode and resilience analysis
+
+Conduct a Failure Mode and Effects Analysis (FMEA) across the complete system.
+
+For each potential failure, identify:
+
+- Failure mode.
+- Triggering condition.
+- Root cause.
+- Affected component.
+- Immediate consequence.
+- Downstream consequence.
+- User-visible symptom.
+- Existing prevention mechanism.
+- Existing recovery mechanism.
+- Severity.
+- Likelihood.
+- Detectability.
+- Demonstration impact.
+- Recommended mitigation.
+
+Evaluate scenarios including:
+
+- Primary AI model unavailable.
+- Embedding model unavailable.
+- Free-tier quota exhausted.
+- Backend offline.
+- Hosting cold start.
+- Firebase unavailable.
+- Internet connection interrupted.
+- Authentication failure.
+- Session expiration.
+- Invalid document.
+- Empty document.
+- Large document.
+- Incomplete indexing.
+- Incorrect library selected.
+- No relevant evidence found.
+- Multiple users submitting requests.
+- Duplicate question submissions.
+- Application refresh during processing.
+- Incorrect or fabricated citations.
+- Application crash during demonstration.
+
+Identify failures that could cascade across multiple components.
+
+15. End-to-end acceptance testing
+
+Where tools and permissions allow, perform safe, non-destructive tests using synthetic or authorized demonstration data.
+
+Test the following:
+
+1. User can authenticate.
+2. User can create a knowledge library.
+3. User can create folders.
+4. User can upload a supported document.
+5. Document content is correctly extracted.
+6. Document is successfully indexed.
+7. User can select a library.
+8. A direct definition question produces a synthesized answer.
+9. A paraphrased question retrieves the correct concept.
+10. Similar keywords do not introduce unrelated information.
+11. Procedural questions produce structured instructions.
+12. Comparison questions produce meaningful comparisons.
+13. Summarization questions produce grounded summaries.
+14. Unsupported questions receive an insufficient-information response.
+15. Multiple selected libraries function correctly.
+16. Unselected libraries are excluded.
+17. Citations correspond to actual supporting evidence.
+18. Citation links open the correct source.
+19. Model failure is handled accurately.
+20. Backend failure is handled accurately.
+21. Refreshing the application preserves stored data.
+22. User data remains isolated.
+23. The deployed application preserves genuine RAG functionality.
+24. The system operates within zero-cost constraints.
+25. The complete demonstration journey works without technical intervention.
+
+For each test, report:
+
+- Test ID.
+- Objective.
+- Preconditions.
+- Expected result.
+- Actual result.
+- Status: PASS, FAIL, BLOCKED or NOT TESTED.
+- Supporting evidence.
+- Associated finding IDs.
+
+Never mark a test as passed merely because the relevant code exists.
+
+Distinguish static inspection, simulated testing and actual runtime verification.
+
+Limit external API testing to avoid unnecessarily consuming the remaining free-tier quota.
+
+16. Demonstration readiness audit
+
+Evaluate the system specifically from the perspective of tomorrow's demonstration.
+
+Identify everything that could cause:
+
+- The application to fail to load.
+- Authentication to fail.
+- Documents to become inaccessible.
+- Questions to return errors.
+- The AI to return irrelevant answers.
+- The AI to return raw search results instead of synthesized answers.
+- The AI to fabricate information.
+- Citations to fail.
+- Responses to take excessively long.
+- Free-tier quotas to be exhausted.
+- The audience to misunderstand the product's value.
+- The demonstrated functionality to deviate from the intended product objective.
+
+Identify the minimum set of functions that must work for a successful demonstration.
+
+Recommend a primary demonstration route and a contingency route.
+
+The contingency route must remain truthful about whether genuine AI generation is operating.
+
+Do not recommend presenting simulated answers, hardcoded responses or basic keyword search as genuine RAG.
+
+17. Finding classification and prioritization
+
+Assign each finding a unique identifier.
+
+Classify findings as:
+
+P0 — Critical demonstration blocker
+
+Prevents the core demonstration, causes severe security exposure or makes the central product objective unattainable.
+
+P1 — High priority
+
+Significantly threatens reliability, answer accuracy, security or demonstration success.
+
+P2 — Medium priority
+
+Degrades functionality or user experience but does not prevent the essential demonstration.
+
+P3 — Low priority
+
+Minor defects, technical debt or optional improvements that can be addressed after the demonstration.
+
+For every finding, include:
+
+- Finding ID.
+- Title.
+- Category.
+- Priority.
+- Exact file path.
+- Relevant line numbers or function names.
+- Evidence.
+- Expected behavior.
+- Actual behavior.
+- Root cause or explicitly labeled suspected cause.
+- Reproduction steps.
+- User impact.
+- Demonstration impact.
+- Security impact.
+- Likelihood of occurrence.
+- Confidence level.
+- Recommended minimum viable fix.
+- Alternative solution, where appropriate.
+- Estimated implementation time.
+- Dependencies and prerequisites.
+- Regression risk.
+- Verification procedure.
+- Whether it must be fixed before the demonstration.
+
+Separate confirmed defects from suspected risks and optional improvements.
+
+Do not inflate the report with generic recommendations unsupported by the actual implementation.
+
+18. Required final audit report
+
+Return a single structured report using the following format.
+
+A. Executive summary
+
+- Overall demonstration readiness.
+- Current system condition.
+- Most significant confirmed problems.
+- Most significant unresolved risks.
+- Whether genuine RAG functionality is operational.
+- Whether zero-cost operation is feasible.
+- GO, CONDITIONAL GO or NO-GO recommendation.
+- Rationale for the recommendation.
+
+B. Audit coverage report
+
+- Total files discovered.
+- Total in-scope files.
+- Total files fully reviewed.
+- Total files partially reviewed.
+- Total files not reviewed.
+- Coverage percentage.
+- Complete file-by-file audit ledger.
+- Explicit exclusions and reasons.
+- Unverified components.
+
+Calculate coverage using actual inspected files, not estimates.
+
+C. Actual system architecture
+
+Provide an architecture diagram and an explanation of the implemented system.
+
+D. End-to-end execution flows
+
+Show the critical user journeys, dependencies and identified failure points.
+
+E. Findings dashboard
+
+Provide a summary table containing:
+
+Finding ID | Problem | Priority | Confidence | Demo impact | Estimated fix time | Regression risk
+
+F. Detailed findings
+
+Provide the complete evidence-based analysis of each finding using the classification structure above.
+
+G. RAG quality assessment
+
+Assess retrieval relevance, synthesis, grounding, citations, refusal behavior and library isolation.
+
+H. AI reliability and cost assessment
+
+Assess model availability, API failures, quotas, request efficiency and zero-cost feasibility.
+
+I. Security and privacy assessment
+
+Report confirmed vulnerabilities and unresolved security risks.
+
+J. Deployment assessment
+
+Explain environment differences and the actual deployment blockers.
+
+K. Failure Mode and Effects Analysis
+
+Provide the complete failure-mode assessment.
+
+L. Acceptance test results
+
+Report every test and its actual verification status.
+
+M. Prioritized remediation backlog
+
+Divide recommendations into:
+
+- Must fix before demonstration.
+- Should fix if time permits.
+- Defer until after demonstration.
+
+Order the fixes by dependencies, demonstration impact, implementation effort and regression risk.
+
+N. Time-constrained remediation plan
+
+Provide alternative plans for:
+
+- 30 minutes remaining.
+- 60 minutes remaining.
+- 120 minutes remaining.
+- 240 minutes remaining.
+
+For each plan, specify the exact finding IDs to address, estimated cumulative implementation time, expected outcome and remaining risks.
+
+Prioritize the smallest safe changes that produce the greatest improvement in demonstration readiness.
+
+O. Demonstration contingency plan
+
+Identify the safest primary and backup demonstration routes, including pre-demo verification requirements.
+
+P. Final audit declaration
+
+Explicitly state:
+
+- What was inspected.
+- What was tested.
+- What could not be inspected.
+- What could not be tested.
+- Which conclusions are confirmed.
+- Which conclusions remain uncertain.
+- Whether any files were modified.
+- Whether any data was mutated.
+- Whether any external API quota was consumed.
+
+19. Audit completion criteria
+
+This assignment is complete only when:
+
+- Every accessible in-scope file has been accounted for.
+- All critical execution paths have been traced.
+- Findings are supported by specific evidence.
+- All significant failure modes have been considered.
+- The core product objective has been evaluated against actual implementation.
+- Security and privacy risks have been evaluated.
+- Free-tier and deployment constraints have been evaluated.
+- Acceptance tests have been executed where possible.
+- Untested behavior is explicitly disclosed.
+- Recommendations are prioritized by demonstration impact and implementation effort.
+- The complete audit report has been delivered.
+- No unauthorized changes have been made.
+
+Do not terminate the audit after identifying the first major problem.
+
+Do not confuse successful compilation with functional correctness.
+
+Do not confuse successful deployment with genuine RAG functionality.
+
+Do not confuse retrieval with answer generation.
+
+Do not confuse theoretical functionality with verified functionality.
+
+Do not claim that the system is free of vulnerabilities or bugs simply because none were detected.
+
+Be meticulous, skeptical, systematic and evidence-driven.
+
+Begin by constructing the complete project inventory, then proceed through the audit in systematic stages.
+
+Return the report only. Await explicit authorization before implementing any corrective changes.

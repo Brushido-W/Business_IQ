@@ -11,6 +11,7 @@ import {
   Loader2,
   Paperclip,
   Plus,
+  RotateCcw,
   Search,
   Send,
   Trash2,
@@ -39,8 +40,12 @@ interface AskAIScreenProps {
  * Safe React renderer for structured grounded answers (numbered lists, bullets, bold, paragraphs).
  * Never uses dangerouslySetInnerHTML.
  */
-function renderInlineBold(text: string): React.ReactNode[] {
-  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+function renderInlineTokens(
+  text: string,
+  citations?: Citation[],
+  onOpenCitation?: (citation: Citation) => void
+): React.ReactNode[] {
+  const parts = text.split(/(\*\*[^*]+\*\*|\[\d+\])/g);
   return parts.map((part, idx) => {
     if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
       return (
@@ -49,11 +54,37 @@ function renderInlineBold(text: string): React.ReactNode[] {
         </strong>
       );
     }
+    const citMatch = part.match(/^\[(\d+)\]$/);
+    if (citMatch && citations && onOpenCitation) {
+      const citIndex = Number(citMatch[1]) - 1;
+      const target = citations[citIndex];
+      if (target) {
+        return (
+          <button
+            key={idx}
+            type="button"
+            onClick={() => onOpenCitation(target)}
+            title={`View source: ${target.documentTitle} (${target.pageLabel})`}
+            className="inline-flex items-center justify-center align-baseline mx-0.5 px-1.5 py-0.2 rounded-[4px] bg-[#EFF6FF] hover:bg-[#DBEAFE] border border-[#BFDBFE] text-[11px] font-semibold text-[#1D4ED8] transition-colors tabular-nums"
+          >
+            [{citMatch[1]}]
+          </button>
+        );
+      }
+    }
     return <React.Fragment key={idx}>{part}</React.Fragment>;
   });
 }
 
-function FormattedAnswer({ content }: { content: string }) {
+function FormattedAnswer({
+  content,
+  citations,
+  onOpenCitation,
+}: {
+  content: string;
+  citations?: Citation[];
+  onOpenCitation?: (citation: Citation) => void;
+}) {
   const lines = content.split('\n');
   const elements: React.ReactNode[] = [];
   let listItems: Array<{ ordered: boolean; text: string; num?: string }> = [];
@@ -68,7 +99,7 @@ function FormattedAnswer({ content }: { content: string }) {
           className="list-decimal pl-5 space-y-1.5 my-2 text-[14px] text-[#0F172A] leading-[1.6]"
         >
           {listItems.map((item, idx) => (
-            <li key={idx}>{renderInlineBold(item.text)}</li>
+            <li key={idx}>{renderInlineTokens(item.text, citations, onOpenCitation)}</li>
           ))}
         </ol>
       );
@@ -79,7 +110,7 @@ function FormattedAnswer({ content }: { content: string }) {
           className="list-disc pl-5 space-y-1.5 my-2 text-[14px] text-[#0F172A] leading-[1.6]"
         >
           {listItems.map((item, idx) => (
-            <li key={idx}>{renderInlineBold(item.text)}</li>
+            <li key={idx}>{renderInlineTokens(item.text, citations, onOpenCitation)}</li>
           ))}
         </ul>
       );
@@ -111,7 +142,7 @@ function FormattedAnswer({ content }: { content: string }) {
     flushList(index);
     elements.push(
       <p key={`p-${index}`} className="text-[14px] text-[#0F172A] leading-[1.6] mb-2 last:mb-0">
-        {renderInlineBold(line)}
+        {renderInlineTokens(line, citations, onOpenCitation)}
       </p>
     );
   });
@@ -572,7 +603,7 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
             </div>
           )}
 
-          {messages.map((msg) => {
+          {messages.map((msg, msgIndex) => {
             if (msg.role === 'user') {
               return (
                 <div key={msg.id} className="flex flex-col items-end">
@@ -589,6 +620,11 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
             const isExpanded = expandedSources[msg.id] !== false;
             const citations = msg.citations || [];
             const isMultiLibMsg = (msg.libraryIds?.length ?? 1) > 1;
+            const isEvidenceOnly = msg.operatingMode === 'evidence-only';
+            const precedingUserQuestion =
+              msg.isError || isEvidenceOnly
+                ? [...messages.slice(0, msgIndex)].reverse().find((m) => m.role === 'user')?.content
+                : undefined;
 
             return (
               <div key={msg.id} className="flex items-start gap-3">
@@ -600,13 +636,54 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
                         ? 'bg-[#FEF2F2] border-[#FECACA]'
                         : msg.insufficientEvidence
                         ? 'bg-[#FFFBFB] border-[#FECACA]'
+                        : isEvidenceOnly
+                        ? 'bg-[#FFFBEB]/60 border-[#FDE68A]'
                         : 'bg-[#F8FAFC] border-[#E2E8F0]'
                     }`}
                   >
+                    {isEvidenceOnly && !msg.isError && (
+                      <div className="mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3 py-2 rounded-[8px] bg-[#FEF3C7] border border-[#FCD34D] text-[12px] text-[#92400E]">
+                        <div className="flex items-start gap-2">
+                          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-[#D97706]" />
+                          <div>
+                            <strong className="font-semibold">Evidence-Only Mode:</strong>{' '}
+                            <span>
+                              {msg.generationNotice ||
+                                'AI answer synthesis is temporarily unavailable. Displaying verified matching source extracts only.'}
+                            </span>
+                          </div>
+                        </div>
+                        {precedingUserQuestion && (
+                          <button
+                            type="button"
+                            onClick={() => void onSendQuestion(precedingUserQuestion)}
+                            disabled={isAsking || !hasSelection}
+                            className="inline-flex items-center gap-1 self-start sm:self-center px-2.5 py-1 rounded-[6px] bg-white hover:bg-[#FFFBEB] border border-[#F59E0B]/50 text-[11.5px] font-semibold text-[#92400E] disabled:opacity-50 shrink-0"
+                          >
+                            <RotateCcw className="w-3 h-3" />
+                            Retry AI
+                          </button>
+                        )}
+                      </div>
+                    )}
+
                     {msg.isError ? (
-                      <div className="flex items-start gap-2.5 text-[14px] text-[#B91C1C]">
-                        <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                        <span>{msg.content}</span>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-[14px] text-[#B91C1C]">
+                        <div className="flex items-start gap-2.5">
+                          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                          <span>{msg.content}</span>
+                        </div>
+                        {precedingUserQuestion && (
+                          <button
+                            type="button"
+                            onClick={() => void onSendQuestion(precedingUserQuestion)}
+                            disabled={isAsking || !hasSelection}
+                            className="inline-flex items-center gap-1.5 self-start sm:self-center px-3 py-1.5 rounded-[7px] bg-white hover:bg-[#FEF2F2] border border-[#FECACA] text-[12.5px] font-semibold text-[#B91C1C] disabled:opacity-50 transition-colors shrink-0"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            Try again
+                          </button>
+                        )}
                       </div>
                     ) : msg.insufficientEvidence ? (
                       <div className="flex items-start gap-2.5">
@@ -623,7 +700,11 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
                         </div>
                       </div>
                     ) : (
-                      <FormattedAnswer content={msg.content} />
+                      <FormattedAnswer
+                        content={msg.content}
+                        citations={citations}
+                        onOpenCitation={onOpenCitation}
+                      />
                     )}
 
                     {msg.processingWarning && (
@@ -650,7 +731,7 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
 
                         {isExpanded && (
                           <div className="mt-2 pt-2 border-t border-[#E2E8F0] space-y-1.5">
-                            {citations.map((cit) => (
+                            {citations.map((cit, idx) => (
                               <button
                                 key={cit.id}
                                 type="button"
@@ -658,6 +739,9 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
                                 className="w-full flex items-center justify-between gap-3 py-1 px-1.5 -mx-1.5 rounded-[6px] hover:bg-white/80 transition-colors text-left group"
                               >
                                 <div className="flex items-center gap-2 min-w-0">
+                                  <span className="text-[11px] font-semibold text-[#475569] tabular-nums shrink-0">
+                                    [{idx + 1}]
+                                  </span>
                                   <FileText className="w-4 h-4 text-[#2563EB] shrink-0" />
                                   <span className="text-[13px] font-medium text-[#2563EB] group-hover:underline truncate">
                                     {cit.documentTitle}
@@ -665,8 +749,8 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
                                 </div>
                                 <span className="text-[12px] text-[#475569] shrink-0 tabular-nums">
                                   {cit.libraryName && isMultiLibMsg
-                                    ? `${cit.libraryName} · ${cit.pageLabel}`
-                                    : cit.pageLabel}
+                                    ? `${cit.libraryName} · ${cit.pageLabel}${cit.sectionTitle ? ` · ${cit.sectionTitle}` : ''}`
+                                    : `${cit.pageLabel}${cit.sectionTitle ? ` · ${cit.sectionTitle}` : ''}`}
                                 </span>
                               </button>
                             ))}

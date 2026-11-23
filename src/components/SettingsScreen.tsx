@@ -1,14 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import {
+  Activity,
+  AlertCircle,
   CheckCircle2,
   Database,
+  Loader2,
   LogOut,
+  RefreshCw,
   Server,
   Shield,
   ShieldCheck,
   User,
 } from 'lucide-react';
-import { SystemStatus } from '../types/knowledge.ts';
+import { ConnectionTestResult, RagOperatingMode, SystemStatus } from '../types/knowledge.ts';
 import { FIREBASE_PROJECT_ID, FIREBASE_STORAGE_BUCKET } from '../lib/firebase.ts';
 
 interface SettingsScreenProps {
@@ -17,6 +21,21 @@ interface SettingsScreenProps {
   onUpdateOperatorName: (name: string) => Promise<void>;
   onSignOut: () => void;
   systemStatus: SystemStatus | null;
+  onTestConnection: () => Promise<ConnectionTestResult>;
+  onRefreshStatus: () => Promise<void>;
+}
+
+function formatOperatingModeLabel(mode?: RagOperatingMode): string {
+  switch (mode) {
+    case 'full-rag':
+      return 'Mode A — Full RAG (Semantic + LLM)';
+    case 'lightweight-rag':
+      return 'Mode B — Lightweight RAG (Keyword + LLM)';
+    case 'evidence-only':
+      return 'Mode C — Evidence-only (No LLM)';
+    default:
+      return 'Checking...';
+  }
 }
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({
@@ -25,14 +44,23 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   onUpdateOperatorName,
   onSignOut,
   systemStatus,
+  onTestConnection,
+  onRefreshStatus,
 }) => {
   const [nameInput, setNameInput] = useState(operatorName);
   const [saving, setSaving] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
+  const [testingConn, setTestingConn] = useState(false);
+  const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
 
   useEffect(() => {
     setNameInput(operatorName);
   }, [operatorName]);
+
+  useEffect(() => {
+    void onRefreshStatus();
+  }, [onRefreshStatus]);
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,6 +75,22 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       setSaving(false);
     }
   };
+
+  const handleRunConnectionTest = async () => {
+    if (testingConn) return;
+    setTestingConn(true);
+    setTestError(null);
+    try {
+      const res = await onTestConnection();
+      setTestResult(res);
+    } catch (err: unknown) {
+      setTestError(err instanceof Error ? err.message : 'Unable to complete connection test.');
+    } finally {
+      setTestingConn(false);
+    }
+  };
+
+  const connStatus = systemStatus?.backendConnectionStatus || 'connected';
 
   return (
     <div className="h-full overflow-y-auto bg-white">
@@ -135,6 +179,167 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               )}
             </div>
           </form>
+        </section>
+
+        {/* Compact System Diagnostics */}
+        <section className="bg-white border border-[#E2E8F0] rounded-[12px] p-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+            <div className="flex items-center gap-2.5">
+              <Activity className="w-4 h-4 text-[#2563EB]" />
+              <h2 className="text-[15px] font-bold text-[#0F172A]">System Diagnostics</h2>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void handleRunConnectionTest()}
+              disabled={testingConn}
+              className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-[12.5px] font-semibold text-[#1D4ED8] bg-[#EFF6FF] hover:bg-[#DBEAFE] border border-[#BFDBFE] disabled:opacity-60 rounded-[8px] transition-colors shrink-0"
+            >
+              {testingConn ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="w-3.5 h-3.5" />
+              )}
+              {testingConn ? 'Testing API...' : 'Test API Connection'}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-[13px]">
+            <div className="flex items-center justify-between py-2 border-b border-[#F1F5F9]">
+              <span className="text-[#64748B]">Operating Mode</span>
+              <span className="font-semibold text-[#0F172A] text-right">
+                {formatOperatingModeLabel(systemStatus?.operatingMode)}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between py-2 border-b border-[#F1F5F9]">
+              <span className="text-[#64748B]">Backend Connection</span>
+              <span
+                className={`inline-flex items-center gap-1.5 font-semibold ${
+                  connStatus === 'connected'
+                    ? 'text-[#15803D]'
+                    : connStatus === 'degraded'
+                    ? 'text-[#B45309]'
+                    : 'text-[#B91C1C]'
+                }`}
+              >
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    connStatus === 'connected'
+                      ? 'bg-[#16A34A]'
+                      : connStatus === 'degraded'
+                      ? 'bg-[#D97706]'
+                      : 'bg-[#DC2626]'
+                  }`}
+                />
+                {connStatus === 'connected'
+                  ? 'Connected'
+                  : connStatus === 'degraded'
+                  ? 'Degraded'
+                  : 'Unavailable'}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between py-2 border-b border-[#F1F5F9]">
+              <span className="text-[#64748B]">Active Generation Model</span>
+              <span className="font-medium text-[#0F172A] font-mono text-[12px]">
+                {systemStatus?.activeGenerationModel || 'None available'}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between py-2 border-b border-[#F1F5F9]">
+              <span className="text-[#64748B]">Active Embedding Model</span>
+              <span className="font-medium text-[#0F172A] font-mono text-[12px]">
+                {systemStatus?.activeEmbeddingModel || 'gemini-embedding-2'}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between py-2 border-b border-[#F1F5F9]">
+              <span className="text-[#64748B]">Last API Status Code</span>
+              <span className="font-medium text-[#0F172A] tabular-nums">
+                {systemStatus?.lastApiStatusCode !== null &&
+                systemStatus?.lastApiStatusCode !== undefined
+                  ? `HTTP ${systemStatus.lastApiStatusCode}`
+                  : 'No requests yet'}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between py-2 border-b border-[#F1F5F9]">
+              <span className="text-[#64748B]">Last Request Duration</span>
+              <span className="font-medium text-[#0F172A] tabular-nums">
+                {systemStatus?.lastRequestDurationMs !== null &&
+                systemStatus?.lastRequestDurationMs !== undefined
+                  ? `${systemStatus.lastRequestDurationMs} ms`
+                  : '—'}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between py-2 border-b border-[#F1F5F9] sm:col-span-2">
+              <span className="text-[#64748B]">Last Retrieved Passages</span>
+              <span className="font-medium text-[#0F172A] tabular-nums">
+                {systemStatus?.lastRetrievedPassagesCount !== null &&
+                systemStatus?.lastRetrievedPassagesCount !== undefined
+                  ? `${systemStatus.lastRetrievedPassagesCount} passage${
+                      systemStatus.lastRetrievedPassagesCount === 1 ? '' : 's'
+                    }`
+                  : '—'}
+              </span>
+            </div>
+          </div>
+
+          {systemStatus?.lastErrorDetail && (
+            <div className="mt-3 px-3 py-2 rounded-[8px] bg-[#FEF2F2] border border-[#FECACA] text-[12.5px] text-[#991B1B] flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-[#DC2626]" />
+              <span>{systemStatus.lastErrorDetail}</span>
+            </div>
+          )}
+
+          {testError && (
+            <div className="mt-3 px-3 py-2 rounded-[8px] bg-[#FEF2F2] border border-[#FECACA] text-[12.5px] text-[#991B1B]">
+              {testError}
+            </div>
+          )}
+
+          {testResult && (
+            <div className="mt-4 p-3.5 rounded-[8px] bg-[#F8FAFC] border border-[#E2E8F0] space-y-2 text-[12.5px]">
+              <div className="flex items-center justify-between font-semibold text-[#0F172A]">
+                <span>Connection Probe Results</span>
+                <span className="text-[11.5px] font-normal text-[#64748B] tabular-nums">
+                  {new Date(testResult.testedAt).toLocaleTimeString()}
+                </span>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-[12px] text-[#334155]">
+                    {testResult.embeddingProbe.model} (embedding)
+                  </span>
+                  <span
+                    className={`font-medium tabular-nums ${
+                      testResult.embeddingProbe.ok ? 'text-[#15803D]' : 'text-[#B91C1C]'
+                    }`}
+                  >
+                    HTTP {testResult.embeddingProbe.statusCode} · {testResult.embeddingProbe.durationMs} ms
+                  </span>
+                </div>
+
+                {testResult.generationProbes.map((probe) => (
+                  <div key={probe.model} className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-[12px] text-[#334155]">
+                      {probe.model} (generation)
+                    </span>
+                    <span
+                      className={`font-medium tabular-nums ${
+                        probe.ok ? 'text-[#15803D]' : 'text-[#B91C1C]'
+                      }`}
+                    >
+                      HTTP {probe.statusCode} ({probe.category}) · {probe.durationMs} ms
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </section>
 
         {/* RAG & Security Guardrails */}

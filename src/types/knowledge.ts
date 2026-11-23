@@ -113,7 +113,31 @@ export interface ChatMessage {
   insufficientEvidence?: boolean;
   processingWarning?: string | null;
   isError?: boolean;
+  operatingMode?: RagOperatingMode;
+  activeModel?: string | null;
+  generationNotice?: string | null;
+  cached?: boolean;
 }
+
+export type RagOperatingMode = 'full-rag' | 'lightweight-rag' | 'evidence-only';
+
+export type QuestionIntent =
+  | 'definition'
+  | 'procedure'
+  | 'comparison'
+  | 'summary'
+  | 'general';
+
+export type ApiErrorCategory =
+  | 'none'
+  | 'rate-limit'
+  | 'quota-exhausted'
+  | 'model-overload'
+  | 'invalid-model'
+  | 'auth-failure'
+  | 'embedding-failure'
+  | 'generation-failure'
+  | 'backend-connectivity';
 
 export interface AskResponse {
   answer: string;
@@ -128,16 +152,54 @@ export interface AskResponse {
   processingDocumentsSkipped: number;
   processingWarning: string | null;
   retrievalSteps: string[];
+  operatingMode?: RagOperatingMode;
+  activeModel?: string | null;
+  questionIntent?: QuestionIntent;
+  retrievedPassageCount?: number;
+  durationMs?: number;
+  cached?: boolean;
+  apiStatusCode?: number;
+  errorCategory?: ApiErrorCategory;
+  generationNotice?: string | null;
+}
+
+export interface ModelProbeResult {
+  model: string;
+  ok: boolean;
+  statusCode: number;
+  durationMs: number;
+  category: ApiErrorCategory;
+  detail: string;
+}
+
+export interface ConnectionTestResult {
+  testedAt: string;
+  overallOk: boolean;
+  operatingMode: RagOperatingMode;
+  activeGenerationModel: string | null;
+  activeEmbeddingModel: string;
+  embeddingProbe: ModelProbeResult;
+  generationProbes: ModelProbeResult[];
 }
 
 export interface SystemStatus {
   appMode: 'firebase-authenticated';
   ragMode?: 'gemini-server' | 'static-browser' | 'unconfigured';
+  operatingMode: RagOperatingMode;
   geminiConfigured: boolean;
   openaiConfigured: boolean;
   supabaseConfigured: boolean;
   firebaseProjectId: string;
   activeRagEngine: string;
+  activeGenerationModel: string | null;
+  configuredGenerationModels?: string[];
+  activeEmbeddingModel: string;
+  backendConnectionStatus: 'connected' | 'degraded' | 'unavailable';
+  lastApiStatusCode: number | null;
+  lastRequestDurationMs: number | null;
+  lastRetrievedPassagesCount: number | null;
+  lastErrorCategory?: ApiErrorCategory;
+  lastErrorDetail?: string | null;
   activePersistence: string;
   activeStorage: string;
   maxUploadSizeMb: number;

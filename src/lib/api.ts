@@ -1,8 +1,11 @@
 import {
+  ApiErrorCategory,
   AskResponse,
+  ConnectionTestResult,
   DocumentChunk,
   DocumentFileType,
   DocumentPage,
+  QuestionIntent,
   SystemStatus,
 } from '../types/knowledge.ts';
 import {
@@ -119,6 +122,35 @@ export const api = {
     }
   },
 
+  testConnection: async (): Promise<ConnectionTestResult> => {
+    try {
+      return await request<ConnectionTestResult>('/api/system/test-connection', {
+        method: 'POST',
+        timeoutMs: 18000,
+      });
+    } catch (err) {
+      if (err instanceof StaticHostApiUnavailableError) {
+        return {
+          testedAt: new Date().toISOString(),
+          overallOk: false,
+          operatingMode: 'evidence-only',
+          activeGenerationModel: null,
+          activeEmbeddingModel: 'gemini-embedding-2 (server required)',
+          embeddingProbe: {
+            model: 'gemini-embedding-2',
+            ok: false,
+            statusCode: 0,
+            durationMs: 0,
+            category: 'backend-connectivity',
+            detail: 'No Express backend reachable on this static host (set VITE_API_BASE_URL).',
+          },
+          generationProbes: [],
+        };
+      }
+      throw err;
+    }
+  },
+
   extractDocument: async (params: {
     file: File;
     documentId: string;
@@ -158,16 +190,28 @@ export const api = {
 
   embedTexts: async (
     texts: string[]
-  ): Promise<{ embeddings: Array<number[] | null> }> => {
+  ): Promise<{
+    embeddings: Array<number[] | null>;
+    statusCode?: number;
+    errorCategory?: ApiErrorCategory;
+  }> => {
     try {
-      return await request<{ embeddings: Array<number[] | null> }>('/api/rag/embed', {
+      return await request<{
+        embeddings: Array<number[] | null>;
+        statusCode?: number;
+        errorCategory?: ApiErrorCategory;
+      }>('/api/rag/embed', {
         method: 'POST',
         body: JSON.stringify({ texts }),
         timeoutMs: 10000,
       });
     } catch (err) {
       if (err instanceof StaticHostApiUnavailableError) {
-        return { embeddings: texts.map(() => null) };
+        return {
+          embeddings: texts.map(() => null),
+          statusCode: 0,
+          errorCategory: 'backend-connectivity',
+        };
       }
       throw err;
     }
@@ -185,6 +229,8 @@ export const api = {
     readyDocumentsSearched: number;
     processingDocumentsSkipped: number;
     question: string;
+    questionIntent?: QuestionIntent;
+    retrievalMode?: 'full-rag' | 'lightweight-rag';
     history: Array<{ role: 'user' | 'assistant'; content: string }>;
     candidates: Array<{
       chunk: DocumentChunk;

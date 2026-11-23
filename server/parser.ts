@@ -1,6 +1,6 @@
 import { extractText } from 'unpdf';
 import mammoth from 'mammoth';
-import { DocumentFileType, DocumentPage } from '../src/types/knowledge.ts';
+import type { DocumentFileType, DocumentPage } from '../src/types/knowledge.ts';
 
 function normalizeText(text: string): string {
   return text

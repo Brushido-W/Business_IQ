@@ -4,9 +4,14 @@ import {
   DocumentChunk,
   DocumentFileType,
   DocumentPage,
+  QuestionIntent,
   SystemStatus,
 } from '../types/knowledge.ts';
 import { FIREBASE_PROJECT_ID } from './firebase.ts';
+import {
+  detectQuestionIntent,
+  extractFocusedEvidenceSnippets,
+} from './retrieval.ts';
 
 function normalizeText(text: string): string {
   return text
@@ -191,103 +196,27 @@ export function getStaticSystemStatus(): SystemStatus {
   return {
     appMode: 'firebase-authenticated',
     ragMode: 'static-browser',
+    operatingMode: 'evidence-only',
     geminiConfigured: false,
     openaiConfigured: false,
     supabaseConfigured: false,
     firebaseProjectId: FIREBASE_PROJECT_ID || 'configured',
-    activeRagEngine: 'Browser Grounded Retrieval (Static Hosting Mode)',
+    activeRagEngine: 'Evidence-Only Mode (Static Host — Connect Node Backend for AI Synthesis)',
+    activeGenerationModel: null,
+    configuredGenerationModels: [],
+    activeEmbeddingModel: 'gemini-embedding-2 (server required)',
+    backendConnectionStatus: 'unavailable',
+    lastApiStatusCode: null,
+    lastRequestDurationMs: null,
+    lastRetrievedPassagesCount: null,
+    lastErrorCategory: 'backend-connectivity',
+    lastErrorDetail:
+      'Static hosting (such as GitHub Pages) cannot run Node.js or store server API keys. Set VITE_API_BASE_URL to connect an external backend.',
     activePersistence: `Cloud Firestore (${FIREBASE_PROJECT_ID || 'configured'})`,
     activeStorage: 'Firebase Storage',
     maxUploadSizeMb: 25,
     supportedExtensions: ['PDF', 'DOCX', 'TXT', 'MD'],
   };
-}
-
-const STOP_WORDS = new Set([
-  'the', 'is', 'at', 'which', 'on', 'a', 'an', 'and', 'or', 'for', 'to', 'of',
-  'in', 'with', 'as', 'by', 'be', 'are', 'was', 'were', 'it', 'that', 'this',
-  'from', 'what', 'how', 'when', 'where', 'who', 'why', 'do', 'does', 'can',
-  'our', 'your', 'my', 'their', 'we', 'you', 'they', 'about', 'into', 'new',
-  'mean', 'means', 'meaning', 'define', 'definition', 'explain', 'tell', 'describe',
-]);
-
-function stemToken(token: string): string {
-  if (token.length <= 3) return token;
-  if (token.endsWith('ies') && token.length > 4) return `${token.slice(0, -3)}y`;
-  if (token.endsWith('es') && token.length > 4) return token.slice(0, -2);
-  if (token.endsWith('s') && !token.endsWith('ss') && token.length > 3) return token.slice(0, -1);
-  if (token.endsWith('ing') && token.length > 5) return token.slice(0, -3);
-  if (token.endsWith('ed') && token.length > 4) return token.slice(0, -2);
-  return token;
-}
-
-function isOverviewQuery(question: string): boolean {
-  return /\b(summarize|summary|overview|topics|contents|outline|what is in|what does this (?:library|document|file) cover|list (?:all|the) (?:terms|definitions|rules|policies|topics))\b/i.test(
-    question
-  );
-}
-
-function tokenizeQuestion(text: string): string[] {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, ' ')
-    .split(/\s+/)
-    .filter((w) => w.length > 1 && !STOP_WORDS.has(w));
-}
-
-function splitChunkIntoUnits(content: string): string[] {
-  const lines = content
-    .split(/\n+/)
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
-
-  const units: string[] = [];
-  for (const line of lines) {
-    if (line.length <= 320) {
-      units.push(line);
-    } else {
-      const sentences = line
-        .split(/(?<=[.!?])\s+/)
-        .map((s) => s.trim())
-        .filter(Boolean);
-      if (sentences.length > 1) {
-        units.push(...sentences);
-      } else {
-        units.push(line);
-      }
-    }
-  }
-  return units;
-}
-
-function scoreUnitAgainstQuestion(unit: string, qTokens: string[], baseScore: number): number {
-  if (qTokens.length === 0) return baseScore;
-  const lower = unit.toLowerCase();
-  const unitTokens = tokenizeQuestion(unit);
-  const unitTokenSet = new Set(unitTokens);
-  const unitStemSet = new Set(unitTokens.map(stemToken));
-
-  let matched = 0;
-  let definitionBoost = 0;
-
-  for (const token of qTokens) {
-    const stem = stemToken(token);
-    if (unitTokenSet.has(token) || unitStemSet.has(stem)) {
-      matched += 1;
-      // Boost glossary/definition entries like "Genuine: ..." or "**Genuine** - ..."
-      const defPattern = new RegExp(`^(?:\\d+\\.\\s*)?(?:\\*\\*|__)?${token}(?:\\*\\*|__)?\\s*[:\\-–]`, 'i');
-      if (defPattern.test(unit.trim())) {
-        definitionBoost += 0.65;
-      }
-    } else if (stem.length >= 4 && lower.includes(stem)) {
-      matched += 0.6;
-    }
-  }
-
-  if (matched === 0) return 0;
-
-  const overlapRatio = matched / qTokens.length;
-  return overlapRatio * 0.7 + definitionBoost + baseScore * 0.3;
 }
 
 export interface StaticAnswerPayload {
@@ -302,6 +231,7 @@ export interface StaticAnswerPayload {
   readyDocumentsSearched: number;
   processingDocumentsSkipped: number;
   question: string;
+  questionIntent?: QuestionIntent;
   candidates: Array<{
     chunk: DocumentChunk;
     documentTitle: string;
@@ -313,7 +243,11 @@ export interface StaticAnswerPayload {
   }>;
 }
 
+const STATIC_INSUFFICIENT_MESSAGE =
+  'I cannot answer this question based on the information available in your selected knowledge libraries.';
+
 export function generateStaticGroundedAnswer(payload: StaticAnswerPayload): AskResponse {
+  const startedAt = Date.now();
   const {
     libraryId,
     libraryName,
@@ -324,6 +258,8 @@ export function generateStaticGroundedAnswer(payload: StaticAnswerPayload): AskR
     question,
     candidates,
   } = payload;
+
+  const questionIntent = payload.questionIntent || detectQuestionIntent(question);
 
   const scopedLibraries =
     libraries && libraries.length > 0
@@ -344,21 +280,20 @@ export function generateStaticGroundedAnswer(payload: StaticAnswerPayload): AskR
       : null;
 
   const retrievalSteps = [
+    `Intent classified: ${questionIntent}`,
     `Scoped retrieval to ${scopeLabel}`,
     `Searched ${readyDocumentsSearched} indexed document${readyDocumentsSearched === 1 ? '' : 's'}`,
-    `Retrieved ${candidates.length} candidate passage${candidates.length === 1 ? '' : 's'} (Static Grounded Mode)`,
+    `Retrieved ${candidates.length} candidate passage${candidates.length === 1 ? '' : 's'} (Evidence-Only Mode)`,
   ];
 
-  const insufficientMessage =
-    libraryNames.length > 1
-      ? "I couldn't find sufficient information in the selected knowledge libraries to answer this question."
-      : "I couldn't find sufficient information in the selected knowledge library to answer this question.";
+  const notice =
+    'AI answer synthesis requires a connected Node.js backend server with GEMINI_API_KEY (unavailable on static GitHub Pages without VITE_API_BASE_URL). Showing verified matching source extracts only.';
 
   if (readyDocumentsSearched === 0 || candidates.length === 0) {
     const emptyMsg =
       processingDocumentsSkipped > 0
-        ? `${insufficientMessage} (${processingDocumentsSkipped} recently uploaded document${processingDocumentsSkipped === 1 ? ' is' : 's are'} still processing and will become searchable once indexing completes.)`
-        : insufficientMessage;
+        ? `${STATIC_INSUFFICIENT_MESSAGE} (${processingDocumentsSkipped} recently uploaded document${processingDocumentsSkipped === 1 ? ' is' : 's are'} still processing and will become searchable once indexing completes.)`
+        : STATIC_INSUFFICIENT_MESSAGE;
 
     return {
       answer: emptyMsg,
@@ -373,54 +308,25 @@ export function generateStaticGroundedAnswer(payload: StaticAnswerPayload): AskR
       processingDocumentsSkipped,
       processingWarning,
       retrievalSteps,
+      operatingMode: 'evidence-only',
+      activeModel: null,
+      questionIntent,
+      retrievedPassageCount: candidates.length,
+      durationMs: Date.now() - startedAt,
+      cached: false,
+      generationNotice: notice,
     };
   }
 
-  const qTokens = tokenizeQuestion(question);
-  const overviewMode = isOverviewQuery(question);
+  const chosen = extractFocusedEvidenceSnippets({
+    question,
+    intent: questionIntent,
+    candidates,
+  });
 
-  interface ScoredExtract {
-    text: string;
-    score: number;
-    candidate: StaticAnswerPayload['candidates'][number];
-  }
-
-  const extracts: ScoredExtract[] = [];
-  for (const candidate of candidates) {
-    const units = splitChunkIntoUnits(candidate.chunk.content);
-    for (const unit of units) {
-      const score = scoreUnitAgainstQuestion(unit, qTokens, candidate.score);
-      if (score > 0) {
-        extracts.push({ text: unit, score, candidate });
-      }
-    }
-  }
-
-  if (overviewMode && extracts.length < 4) {
-    const existingSet = new Set(extracts.map((e) => e.text.toLowerCase()));
-    for (const candidate of candidates.slice(0, 4)) {
-      const units = splitChunkIntoUnits(candidate.chunk.content);
-      for (const unit of units) {
-        if (unit.length < 16) continue;
-        const key = unit.toLowerCase();
-        if (existingSet.has(key)) continue;
-        existingSet.add(key);
-        extracts.push({
-          text: unit,
-          score: Math.max(0.25, candidate.score * 0.5),
-          candidate,
-        });
-        if (extracts.length >= 6) break;
-      }
-      if (extracts.length >= 6) break;
-    }
-  }
-
-  extracts.sort((a, b) => b.score - a.score);
-
-  if (extracts.length === 0) {
+  if (chosen.length === 0) {
     return {
-      answer: insufficientMessage,
+      answer: STATIC_INSUFFICIENT_MESSAGE,
       insufficientEvidence: true,
       citations: [],
       libraryId,
@@ -432,26 +338,19 @@ export function generateStaticGroundedAnswer(payload: StaticAnswerPayload): AskR
       processingDocumentsSkipped,
       processingWarning,
       retrievalSteps,
+      operatingMode: 'evidence-only',
+      activeModel: null,
+      questionIntent,
+      retrievedPassageCount: candidates.length,
+      durationMs: Date.now() - startedAt,
+      cached: false,
+      generationNotice: notice,
     };
   }
 
-  const chosen: ScoredExtract[] = [];
-  const seenTexts = new Set<string>();
-  for (const item of extracts) {
-    const key = item.text.toLowerCase();
-    if (seenTexts.has(key)) continue;
-    seenTexts.add(key);
-    chosen.push(item);
-    if (chosen.length >= 4) break;
-  }
-
-  const answerText =
-    chosen.length === 1
-      ? chosen[0].text
-      : chosen.map((item, idx) => `${idx + 1}. ${item.text}`).join('\n');
-
   const verifiedCitations: Citation[] = [];
   const seenDocPage = new Set<string>();
+  const lines: string[] = [];
 
   for (const item of chosen) {
     const matched = item.candidate;
@@ -462,30 +361,38 @@ export function generateStaticGroundedAnswer(payload: StaticAnswerPayload): AskR
       libraryName;
 
     const dedupeKey = `${matchedLibId}:${matched.chunk.documentId}:${matched.chunk.pageNumber}`;
-    if (seenDocPage.has(dedupeKey)) continue;
-    seenDocPage.add(dedupeKey);
+    let markerNum = verifiedCitations.length + 1;
 
-    const excerpt = item.text.slice(0, 220).trim() || matched.chunk.content.slice(0, 200).trim();
+    if (!seenDocPage.has(dedupeKey)) {
+      seenDocPage.add(dedupeKey);
+      const excerpt = item.text.slice(0, 220).trim() || matched.chunk.content.slice(0, 200).trim();
+      verifiedCitations.push({
+        id: `cit_${matched.chunk.id}`,
+        chunkId: matched.chunk.id,
+        documentId: matched.chunk.documentId,
+        documentTitle: matched.documentTitle,
+        fileType: matched.fileType,
+        libraryId: matchedLibId,
+        libraryName: matchedLibName,
+        folderName: matched.folderName,
+        pageNumber: matched.chunk.pageNumber,
+        pageLabel: `p. ${matched.chunk.pageNumber}`,
+        sectionTitle: matched.chunk.sectionTitle,
+        excerpt,
+        relevanceScore: Number(matched.score.toFixed(3)),
+      });
+    } else {
+      const idx = verifiedCitations.findIndex(
+        (c) => `${c.libraryId}:${c.documentId}:${c.pageNumber}` === dedupeKey
+      );
+      if (idx >= 0) markerNum = idx + 1;
+    }
 
-    verifiedCitations.push({
-      id: `cit_${matched.chunk.id}`,
-      chunkId: matched.chunk.id,
-      documentId: matched.chunk.documentId,
-      documentTitle: matched.documentTitle,
-      fileType: matched.fileType,
-      libraryId: matchedLibId,
-      libraryName: matchedLibName,
-      folderName: matched.folderName,
-      pageNumber: matched.chunk.pageNumber,
-      pageLabel: `p. ${matched.chunk.pageNumber}`,
-      sectionTitle: matched.chunk.sectionTitle,
-      excerpt,
-      relevanceScore: Number(matched.score.toFixed(3)),
-    });
+    lines.push(`• "${item.text}" [${markerNum}]`);
   }
 
   return {
-    answer: answerText,
+    answer: lines.join('\n'),
     insufficientEvidence: false,
     citations: verifiedCitations,
     libraryId,
@@ -497,5 +404,12 @@ export function generateStaticGroundedAnswer(payload: StaticAnswerPayload): AskR
     processingDocumentsSkipped,
     processingWarning,
     retrievalSteps,
+    operatingMode: 'evidence-only',
+    activeModel: null,
+    questionIntent,
+    retrievedPassageCount: candidates.length,
+    durationMs: Date.now() - startedAt,
+    cached: false,
+    generationNotice: notice,
   };
 }

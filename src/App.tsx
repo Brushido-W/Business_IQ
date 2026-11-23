@@ -4,6 +4,7 @@ import { onAuthStateChanged, signOut, User } from 'firebase/auth';
 import {
   ChatMessage,
   Citation,
+  ConnectionTestResult,
   DocumentDetail,
   DocumentRecord,
   Folder,
@@ -14,6 +15,7 @@ import { api } from './lib/api.ts';
 import { auth, extractFriendlyErrorMessage } from './lib/firebase.ts';
 import {
   askLibrariesQuestion,
+  clearUserAnswerCache,
   createFolder,
   createLibrary,
   deleteDocument,
@@ -165,6 +167,7 @@ export default function App() {
       setAuthReady(true);
 
       if (!firebaseUser) {
+        clearUserAnswerCache();
         setLibraries([]);
         setSelectedAskLibraryIds([]);
         hasAutoSelectedAskRef.current = false;
@@ -180,15 +183,25 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  const refreshSystemStatus = useCallback(async () => {
+    try {
+      const status = await api.getSystemStatus();
+      setSystemStatus(status);
+    } catch {
+      // Non-blocking
+    }
+  }, []);
+
+  const handleTestConnection = useCallback(async (): Promise<ConnectionTestResult> => {
+    const result = await api.testConnection();
+    await refreshSystemStatus();
+    return result;
+  }, [refreshSystemStatus]);
+
   // System status check
   useEffect(() => {
-    void api
-      .getSystemStatus()
-      .then(setSystemStatus)
-      .catch(() => {
-        // Non-blocking
-      });
-  }, []);
+    void refreshSystemStatus();
+  }, [refreshSystemStatus]);
 
   // Ensure user profile & subscribe to libraries once authenticated
   useEffect(() => {
@@ -328,6 +341,7 @@ export default function App() {
 
   const handleSignOut = async () => {
     try {
+      clearUserAnswerCache(user?.uid);
       await signOut(auth);
       showToast('success', 'Signed out successfully.');
     } catch (err: unknown) {
@@ -391,13 +405,37 @@ export default function App() {
         citations: res.citations,
         insufficientEvidence: res.insufficientEvidence,
         processingWarning: res.processingWarning,
+        operatingMode: res.operatingMode,
+        activeModel: res.activeModel,
+        generationNotice: res.generationNotice,
+        cached: res.cached,
       };
 
       setMessagesByScope((prev) => ({
         ...prev,
         [scopeKey]: [...(prev[scopeKey] || []), assistantMsg],
       }));
+
+      setSystemStatus((prev) =>
+        prev
+          ? {
+              ...prev,
+              operatingMode: res.operatingMode ?? prev.operatingMode,
+              activeGenerationModel:
+                res.activeModel !== undefined ? res.activeModel : prev.activeGenerationModel,
+              lastApiStatusCode: res.apiStatusCode ?? prev.lastApiStatusCode,
+              lastRequestDurationMs: res.durationMs ?? prev.lastRequestDurationMs,
+              lastRetrievedPassagesCount:
+                res.retrievedPassageCount ?? res.citations.length,
+              lastErrorCategory: res.errorCategory ?? prev.lastErrorCategory,
+              lastErrorDetail:
+                res.generationNotice ||
+                (res.errorCategory === 'none' ? null : prev.lastErrorDetail),
+            }
+          : prev
+      );
     } catch (err: unknown) {
+      void refreshSystemStatus();
       const errorText = extractFriendlyErrorMessage(
         err,
         'Error while querying the selected knowledge libraries.'
@@ -870,6 +908,8 @@ export default function App() {
             onUpdateOperatorName={handleUpdateOperatorName}
             onSignOut={() => void handleSignOut()}
             systemStatus={systemStatus}
+            onTestConnection={handleTestConnection}
+            onRefreshStatus={refreshSystemStatus}
           />
         )}
 

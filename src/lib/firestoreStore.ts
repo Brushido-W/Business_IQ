@@ -40,6 +40,45 @@ import {
   storage,
 } from './firebase.ts';
 import { api } from './api.ts';
+import {
+  computePrecisionLexicalScore,
+  detectQuestionIntent,
+  selectRelevantPassages,
+} from './retrieval.ts';
+
+interface CachedRagEntry {
+  key: string;
+  libraryIds: string[];
+  response: AskResponse;
+  storedAt: number;
+}
+
+const ragAnswerCache = new Map<string, CachedRagEntry>();
+const MAX_CACHE_ENTRIES = 60;
+
+function normalizeQuestionForCache(question: string): string {
+  return question.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function invalidateLibraryAnswerCache(libraryId: string): void {
+  for (const [key, entry] of ragAnswerCache.entries()) {
+    if (entry.libraryIds.includes(libraryId)) {
+      ragAnswerCache.delete(key);
+    }
+  }
+}
+
+export function clearUserAnswerCache(userId?: string): void {
+  if (!userId) {
+    ragAnswerCache.clear();
+    return;
+  }
+  for (const key of ragAnswerCache.keys()) {
+    if (key.startsWith(`${userId}::`)) {
+      ragAnswerCache.delete(key);
+    }
+  }
+}
 
 function timestampToIso(val: unknown): string {
   if (
@@ -352,6 +391,7 @@ export async function updateLibrary(
       description,
       updatedAt: serverTimestamp(),
     });
+    invalidateLibraryAnswerCache(libraryId);
     const snap = await getDoc(libRef);
     if (!snap.exists()) {
       throw new Error('Knowledge library not found.');
@@ -415,6 +455,7 @@ export async function deleteLibrary(userId: string, libraryId: string): Promise<
 
     // 4. Delete the parent library document last
     await deleteDoc(doc(db, 'libraries', libraryId));
+    invalidateLibraryAnswerCache(libraryId);
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, path);
   }
@@ -736,6 +777,7 @@ export async function deleteFolder(
     await updateDoc(doc(db, 'libraries', libraryId), {
       updatedAt: serverTimestamp(),
     });
+    invalidateLibraryAnswerCache(libraryId);
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, path);
   }
@@ -1005,6 +1047,7 @@ export async function uploadDocuments(
           updatedAt: serverTimestamp(),
         }),
       ]);
+      invalidateLibraryAnswerCache(libraryId);
 
       const finalSnap = await getDoc(docRef);
       createdRecords.push(
@@ -1105,6 +1148,7 @@ export async function renameDocument(
     await updateDoc(doc(db, 'libraries', libraryId), {
       updatedAt: serverTimestamp(),
     });
+    invalidateLibraryAnswerCache(libraryId);
   } catch (err) {
     handleFirestoreError(err, OperationType.UPDATE, path);
   }
@@ -1121,6 +1165,10 @@ export async function moveDocument(
       folderId: folderId || null,
       updatedAt: serverTimestamp(),
     });
+    await updateDoc(doc(db, 'libraries', libraryId), {
+      updatedAt: serverTimestamp(),
+    });
+    invalidateLibraryAnswerCache(libraryId);
   } catch (err) {
     handleFirestoreError(err, OperationType.UPDATE, path);
   }
@@ -1243,13 +1291,19 @@ export async function reindexDocument(
       await batch.commit();
     }
 
-    await updateDoc(docRef, {
-      pageCount: safePages.length,
-      chunkCount: safeChunks.length,
-      status: 'ready',
-      errorMessage: null,
-      updatedAt: serverTimestamp(),
-    });
+    await Promise.all([
+      updateDoc(docRef, {
+        pageCount: safePages.length,
+        chunkCount: safeChunks.length,
+        status: 'ready',
+        errorMessage: null,
+        updatedAt: serverTimestamp(),
+      }),
+      updateDoc(doc(db, 'libraries', libraryId), {
+        updatedAt: serverTimestamp(),
+      }),
+    ]);
+    invalidateLibraryAnswerCache(libraryId);
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
   }
@@ -1295,75 +1349,10 @@ export async function deleteDocument(
     await updateDoc(doc(db, 'libraries', libraryId), {
       updatedAt: serverTimestamp(),
     });
+    invalidateLibraryAnswerCache(libraryId);
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, path);
   }
-}
-
-// --- Library-Isolated Hybrid Retrieval & RAG Ask ---
-
-function tokenize(text: string): string[] {
-  const stopWords = new Set([
-    'the', 'is', 'at', 'which', 'on', 'a', 'an', 'and', 'or', 'for', 'to', 'of',
-    'in', 'with', 'as', 'by', 'be', 'are', 'was', 'were', 'it', 'that', 'this',
-    'from', 'what', 'how', 'when', 'where', 'who', 'why', 'do', 'does', 'can',
-    'our', 'your', 'my', 'their', 'we', 'you', 'they', 'about', 'into', 'new',
-    'mean', 'means', 'meaning', 'define', 'definition', 'explain', 'tell', 'describe',
-  ]);
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, ' ')
-    .split(/\s+/)
-    .filter((w) => w.length > 1 && !stopWords.has(w));
-}
-
-function stemToken(token: string): string {
-  if (token.length <= 3) return token;
-  if (token.endsWith('ies') && token.length > 4) return `${token.slice(0, -3)}y`;
-  if (token.endsWith('es') && token.length > 4) return token.slice(0, -2);
-  if (token.endsWith('s') && !token.endsWith('ss') && token.length > 3) return token.slice(0, -1);
-  if (token.endsWith('ing') && token.length > 5) return token.slice(0, -3);
-  if (token.endsWith('ed') && token.length > 4) return token.slice(0, -2);
-  return token;
-}
-
-function isOverviewQuestion(question: string): boolean {
-  return /\b(summarize|summary|overview|topics|contents|outline|what is in|what does this (?:library|document|file) cover|list (?:all|the) (?:terms|definitions|rules|policies|topics))\b/i.test(
-    question
-  );
-}
-
-function computeLexicalScore(queryText: string, docText: string, filename: string): number {
-  const qTokens = tokenize(queryText);
-  if (qTokens.length === 0) return 0;
-
-  const haystack = `${filename} ${docText}`.toLowerCase();
-  const docTokensList = tokenize(haystack);
-  const docTokens = new Set(docTokensList);
-  const docStems = new Set(docTokensList.map(stemToken));
-
-  let matched = 0;
-  let weighted = 0;
-  for (const token of qTokens) {
-    const stem = stemToken(token);
-    if (docTokens.has(token) || docStems.has(stem)) {
-      matched += 1;
-      weighted += 1;
-    } else if (stem.length >= 4 && haystack.includes(stem)) {
-      matched += 0.65;
-      weighted += 0.65;
-    }
-  }
-
-  let bigramBonus = 0;
-  for (let i = 0; i < qTokens.length - 1; i++) {
-    const pair = `${qTokens[i]} ${qTokens[i + 1]}`;
-    if (haystack.includes(pair)) {
-      bigramBonus += 0.15;
-    }
-  }
-
-  return Math.min(1, weighted / qTokens.length + bigramBonus) * (matched > 0 ? 1 : 0);
 }
 
 function cosineSimilarity(a: number[], b: number[]): number {
@@ -1386,11 +1375,13 @@ export async function askLibrariesQuestion(params: {
   question: string;
   history: Array<{ role: 'user' | 'assistant'; content: string }>;
 }): Promise<AskResponse> {
+  const startedAt = Date.now();
   const { userId, libraries, question, history } = params;
   if (libraries.length === 0) {
     throw new Error('Select at least one knowledge library to ask a question.');
   }
 
+  const questionIntent = detectQuestionIntent(question);
   const primaryLibrary = libraries[0];
   const libraryScope = libraries.map((lib) => ({
     libraryId: lib.id,
@@ -1455,6 +1446,28 @@ export async function askLibrariesQuestion(params: {
       })
     );
 
+    const sortedLibIds = [...libraries.map((l) => l.id)].sort();
+    const revisionFingerprint = perLibraryData
+      .sort((a, b) => a.library.id.localeCompare(b.library.id))
+      .map((entry) => {
+        const docRevs = [...entry.readyDocs]
+          .sort((a, b) => a.id.localeCompare(b.id))
+          .map((d) => `${d.id}:${d.updatedAt}:${d.filename}`)
+          .join(';');
+        return `${entry.library.id}@${entry.library.updatedAt}[${docRevs}]`;
+      })
+      .join('|');
+
+    const cacheKey = `${userId}::${sortedLibIds.join(',')}::${revisionFingerprint}::${normalizeQuestionForCache(question)}`;
+    const cachedEntry = ragAnswerCache.get(cacheKey);
+    if (cachedEntry && cachedEntry.response.operatingMode !== 'evidence-only') {
+      return {
+        ...cachedEntry.response,
+        cached: true,
+        durationMs: Math.max(1, Date.now() - startedAt),
+      };
+    }
+
     const totalReadyDocs = perLibraryData.reduce((sum, entry) => sum + entry.readyDocs.length, 0);
     const totalProcessingDocs = perLibraryData.reduce(
       (sum, entry) => sum + entry.processingDocs.length,
@@ -1474,20 +1487,41 @@ export async function askLibrariesQuestion(params: {
         readyDocumentsSearched: totalReadyDocs,
         processingDocumentsSkipped: totalProcessingDocs,
         question,
+        questionIntent,
+        retrievalMode: 'lightweight-rag',
         history,
         candidates: [],
       });
     }
 
-    const { embeddings } = await api.embedTexts([question]).catch(() => ({ embeddings: [null] }));
-    const queryVector = embeddings[0] || null;
+    const hasStoredEmbeddings = perLibraryData.some((entry) =>
+      entry.readyChunks.some((c) => Array.isArray(c.embedding) && c.embedding.length > 0)
+    );
+
+    let queryVector: number[] | null = null;
+    if (hasStoredEmbeddings) {
+      const embedRes = await api
+        .embedTexts([question])
+        .catch(() => ({ embeddings: [null] as Array<number[] | null> }));
+      queryVector = embedRes.embeddings[0] || null;
+    }
+
+    const hasSemanticVectors = Boolean(queryVector && hasStoredEmbeddings);
+    const retrievalMode: 'full-rag' | 'lightweight-rag' = hasSemanticVectors
+      ? 'full-rag'
+      : 'lightweight-rag';
 
     const ranked = perLibraryData.flatMap(
       ({ library, docsById, foldersById, readyChunks }) =>
         readyChunks.map((chunk) => {
           const docMeta = docsById.get(chunk.documentId)!;
           const folderName = docMeta.folderId ? foldersById.get(docMeta.folderId) || null : null;
-          const lexicalScore = computeLexicalScore(question, chunk.content, docMeta.filename);
+          const lex = computePrecisionLexicalScore({
+            question,
+            intent: questionIntent,
+            content: chunk.content,
+            documentTitle: docMeta.filename,
+          });
           const vectorScore =
             queryVector &&
             chunk.embedding &&
@@ -1497,8 +1531,8 @@ export async function askLibrariesQuestion(params: {
               : 0;
           const score =
             queryVector && chunk.embedding && chunk.embedding.length > 0
-              ? vectorScore * 0.65 + lexicalScore * 0.35
-              : lexicalScore;
+              ? vectorScore * 0.62 + lex.lexicalScore * 0.38
+              : lex.lexicalScore;
 
           return {
             chunk: {
@@ -1516,59 +1550,33 @@ export async function askLibrariesQuestion(params: {
             libraryName: library.name,
             folderName,
             score,
-            lexicalScore,
+            lexicalScore: lex.lexicalScore,
             vectorScore,
+            matchedFocusRatio: lex.matchedFocusRatio,
+            exactPhraseHit: lex.exactPhraseHit,
           };
         })
     );
 
     ranked.sort((a, b) => b.score - a.score);
 
-    const candidateWindow = libraries.length > 1 ? 10 : 6;
-    let topCandidates = ranked
-      .slice(0, candidateWindow)
-      .filter((item) => {
-        if (queryVector && item.vectorScore > 0) {
-          return (
-            item.lexicalScore >= 0.25 ||
-            (item.vectorScore >= 0.62 && item.lexicalScore > 0) ||
-            item.vectorScore >= 0.72
-          );
-        }
-        return item.lexicalScore >= 0.15;
-      })
-      .map(({ chunk, documentTitle, fileType, libraryId, libraryName, folderName, score }) => ({
-        chunk,
-        documentTitle,
-        fileType,
-        libraryId,
-        libraryName,
-        folderName,
-        score,
-      }));
+    const selected = selectRelevantPassages({
+      question,
+      intent: questionIntent,
+      ranked,
+      hasSemanticVectors,
+      libraryCount: libraries.length,
+    }).map(({ chunk, documentTitle, fileType, libraryId, libraryName, folderName, score }) => ({
+      chunk,
+      documentTitle,
+      fileType,
+      libraryId,
+      libraryName,
+      folderName,
+      score,
+    }));
 
-    // For broad summary/overview queries across ready libraries, surface leading chunks per document
-    if (topCandidates.length === 0 && isOverviewQuestion(question)) {
-      const seenDocIds = new Set<string>();
-      const overviewCandidates = [];
-      for (const item of ranked) {
-        if (seenDocIds.has(item.chunk.documentId)) continue;
-        seenDocIds.add(item.chunk.documentId);
-        overviewCandidates.push({
-          chunk: item.chunk,
-          documentTitle: item.documentTitle,
-          fileType: item.fileType,
-          libraryId: item.libraryId,
-          libraryName: item.libraryName,
-          folderName: item.folderName,
-          score: Math.max(0.35, item.score),
-        });
-        if (overviewCandidates.length >= candidateWindow) break;
-      }
-      topCandidates = overviewCandidates;
-    }
-
-    return await api.answerFromCandidates({
+    const answerRes = await api.answerFromCandidates({
       libraryId: primaryLibrary.id,
       libraryName: scopeDisplayName,
       vectorStoreId: primaryLibrary.vectorStoreId,
@@ -1576,9 +1584,30 @@ export async function askLibrariesQuestion(params: {
       readyDocumentsSearched: totalReadyDocs,
       processingDocumentsSkipped: totalProcessingDocs,
       question,
+      questionIntent,
+      retrievalMode,
       history,
-      candidates: topCandidates,
+      candidates: selected,
     });
+
+    // Only cache verified genuine LLM synthesis responses (never Evidence-Only degraded outputs)
+    if (
+      answerRes.operatingMode === 'full-rag' ||
+      answerRes.operatingMode === 'lightweight-rag'
+    ) {
+      if (ragAnswerCache.size >= MAX_CACHE_ENTRIES) {
+        const oldestKey = ragAnswerCache.keys().next().value;
+        if (oldestKey) ragAnswerCache.delete(oldestKey);
+      }
+      ragAnswerCache.set(cacheKey, {
+        key: cacheKey,
+        libraryIds: sortedLibIds,
+        response: answerRes,
+        storedAt: Date.now(),
+      });
+    }
+
+    return answerRes;
   } catch (err) {
     if (err instanceof Error && !err.message.includes('Missing or insufficient permissions')) {
       throw err;

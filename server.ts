@@ -1,19 +1,25 @@
 import 'dotenv/config';
-import express, { NextFunction, Request, Response } from 'express';
+import express, { type NextFunction, type Request, type Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { createServer as createViteServer } from 'vite';
-import { DocumentFileType, SystemStatus } from './src/types/knowledge.ts';
+import type {
+  DocumentFileType,
+  QuestionIntent,
+  SystemStatus,
+} from './src/types/knowledge.ts';
 import {
-  CandidatePassageInput,
+  type CandidatePassageInput,
+  RagServiceError,
   embedTexts,
   extractAndChunkBuffer,
   generateGroundedAnswer,
+  getDiagnosticsSnapshot,
   isGeminiConfigured,
+  testGeminiConnection,
 } from './server/rag.ts';
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MB
 const ALLOWED_EXTENSIONS = new Set(['.pdf', '.docx', '.txt', '.md']);
 
@@ -81,6 +87,7 @@ async function startServer() {
   });
 
   app.get('/api/system/status', (_req: Request, res: Response) => {
+    const diag = getDiagnosticsSnapshot();
     const geminiReady = isGeminiConfigured();
     const openaiReady = Boolean(process.env.OPENAI_API_KEY?.trim());
     const supabaseReady = Boolean(
@@ -88,22 +95,46 @@ async function startServer() {
     );
     const projectId = readFirebaseProjectId();
 
+    const engineLabel = !geminiReady
+      ? 'Not Configured'
+      : diag.operatingMode === 'evidence-only'
+      ? `Evidence-Only Fallback (AI temporarily degraded: ${diag.lastErrorCategory})`
+      : `Gemini RAG (${diag.activeGenerationModel || diag.configuredGenerationModels[0]} + ${diag.activeEmbeddingModel})`;
+
     const status: SystemStatus = {
       appMode: 'firebase-authenticated',
       ragMode: geminiReady ? 'gemini-server' : 'unconfigured',
+      operatingMode: diag.operatingMode,
       geminiConfigured: geminiReady,
       openaiConfigured: openaiReady,
       supabaseConfigured: supabaseReady,
       firebaseProjectId: projectId,
-      activeRagEngine: geminiReady
-        ? 'Gemini RAG (gemini-4-hydrogen + gemini-embedding-2)'
-        : 'Not Configured',
+      activeRagEngine: engineLabel,
+      activeGenerationModel: diag.activeGenerationModel,
+      configuredGenerationModels: diag.configuredGenerationModels,
+      activeEmbeddingModel: diag.activeEmbeddingModel,
+      backendConnectionStatus: diag.backendConnectionStatus,
+      lastApiStatusCode: diag.lastApiStatusCode,
+      lastRequestDurationMs: diag.lastRequestDurationMs,
+      lastRetrievedPassagesCount: diag.lastRetrievedPassagesCount,
+      lastErrorCategory: diag.lastErrorCategory,
+      lastErrorDetail: diag.lastErrorDetail,
       activePersistence: `Cloud Firestore (${projectId})`,
       activeStorage: 'Firebase Storage',
       maxUploadSizeMb: 25,
       supportedExtensions: ['PDF', 'DOCX', 'TXT', 'MD'],
     };
     res.json(status);
+  });
+
+  app.post('/api/system/test-connection', async (_req: Request, res: Response) => {
+    try {
+      const result = await testGeminiConnection();
+      return res.json(result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Connection test failed.';
+      return res.status(500).json({ error: msg });
+    }
   });
 
   // --- Stateless Document Text Extraction & Chunking ---
@@ -166,14 +197,18 @@ async function startServer() {
       .map((t: string) => t.slice(0, 2000));
 
     if (texts.length === 0) {
-      return res.json({ embeddings: [] });
+      return res.json({ embeddings: [], statusCode: 200, errorCategory: 'none' });
     }
 
     try {
-      const embeddings = await embedTexts(texts);
-      return res.json({ embeddings });
+      const result = await embedTexts(texts);
+      return res.json(result);
     } catch {
-      return res.json({ embeddings: texts.map(() => null) });
+      return res.json({
+        embeddings: texts.map(() => null),
+        statusCode: 502,
+        errorCategory: 'embedding-failure',
+      });
     }
   });
 
@@ -195,6 +230,14 @@ async function startServer() {
           .slice(0, 25)
       : undefined;
     const question = typeof req.body?.question === 'string' ? req.body.question.trim() : '';
+    const questionIntent =
+      typeof req.body?.questionIntent === 'string'
+        ? (req.body.questionIntent as QuestionIntent)
+        : undefined;
+    const retrievalMode =
+      req.body?.retrievalMode === 'full-rag' || req.body?.retrievalMode === 'lightweight-rag'
+        ? (req.body.retrievalMode as 'full-rag' | 'lightweight-rag')
+        : 'lightweight-rag';
     const readyDocumentsSearched =
       typeof req.body?.readyDocumentsSearched === 'number' ? req.body.readyDocumentsSearched : 0;
     const processingDocumentsSkipped =
@@ -202,7 +245,7 @@ async function startServer() {
         ? req.body.processingDocumentsSkipped
         : 0;
     const candidates = Array.isArray(req.body?.candidates)
-      ? (req.body.candidates as CandidatePassageInput[]).slice(0, 10)
+      ? (req.body.candidates as CandidatePassageInput[]).slice(0, 8)
       : [];
     const history = Array.isArray(req.body?.history)
       ? req.body.history
@@ -214,7 +257,7 @@ async function startServer() {
                 (m as { role?: string }).role === 'assistant') &&
               typeof (m as { content?: string }).content === 'string'
           )
-          .slice(-6)
+          .slice(-4)
       : [];
 
     if (!libraryId || !libraryName) {
@@ -233,17 +276,24 @@ async function startServer() {
         readyDocumentsSearched,
         processingDocumentsSkipped,
         question,
+        questionIntent,
+        retrievalMode,
         candidates,
         conversationHistory: history,
       });
       return res.json(result);
     } catch (err: unknown) {
-      console.error('RAG query failed:', err);
+      const statusCode = err instanceof RagServiceError ? err.statusCode : 500;
       const message =
         err instanceof Error
           ? err.message
           : 'An unexpected error occurred while searching the selected knowledge library.';
-      return res.status(500).json({ error: message });
+      if (statusCode === 503 || statusCode === 429) {
+        console.warn(`RAG query throttled (${statusCode}):`, message);
+      } else {
+        console.error('RAG query failed:', err);
+      }
+      return res.status(statusCode).json({ error: message });
     }
   });
 
@@ -263,6 +313,7 @@ async function startServer() {
 
   // Frontend serving: Vite middleware in development, static dist in production
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
