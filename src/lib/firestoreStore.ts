@@ -1317,20 +1317,39 @@ function tokenize(text: string): string[] {
     .filter((w) => w.length > 1 && !stopWords.has(w));
 }
 
+function stemToken(token: string): string {
+  if (token.length <= 3) return token;
+  if (token.endsWith('ies') && token.length > 4) return `${token.slice(0, -3)}y`;
+  if (token.endsWith('es') && token.length > 4) return token.slice(0, -2);
+  if (token.endsWith('s') && !token.endsWith('ss') && token.length > 3) return token.slice(0, -1);
+  if (token.endsWith('ing') && token.length > 5) return token.slice(0, -3);
+  if (token.endsWith('ed') && token.length > 4) return token.slice(0, -2);
+  return token;
+}
+
+function isOverviewQuestion(question: string): boolean {
+  return /\b(summarize|summary|overview|topics|contents|outline|what is in|what does this (?:library|document|file) cover|list (?:all|the) (?:terms|definitions|rules|policies|topics))\b/i.test(
+    question
+  );
+}
+
 function computeLexicalScore(queryText: string, docText: string, filename: string): number {
   const qTokens = tokenize(queryText);
   if (qTokens.length === 0) return 0;
 
   const haystack = `${filename} ${docText}`.toLowerCase();
-  const docTokens = new Set(tokenize(haystack));
+  const docTokensList = tokenize(haystack);
+  const docTokens = new Set(docTokensList);
+  const docStems = new Set(docTokensList.map(stemToken));
 
   let matched = 0;
   let weighted = 0;
   for (const token of qTokens) {
-    if (docTokens.has(token)) {
+    const stem = stemToken(token);
+    if (docTokens.has(token) || docStems.has(stem)) {
       matched += 1;
       weighted += 1;
-    } else if (token.length >= 4 && haystack.includes(token)) {
+    } else if (stem.length >= 4 && haystack.includes(stem)) {
       matched += 0.65;
       weighted += 0.65;
     }
@@ -1506,7 +1525,7 @@ export async function askLibrariesQuestion(params: {
     ranked.sort((a, b) => b.score - a.score);
 
     const candidateWindow = libraries.length > 1 ? 10 : 6;
-    const topCandidates = ranked
+    let topCandidates = ranked
       .slice(0, candidateWindow)
       .filter((item) => {
         if (queryVector && item.vectorScore > 0) {
@@ -1527,6 +1546,27 @@ export async function askLibrariesQuestion(params: {
         folderName,
         score,
       }));
+
+    // For broad summary/overview queries across ready libraries, surface leading chunks per document
+    if (topCandidates.length === 0 && isOverviewQuestion(question)) {
+      const seenDocIds = new Set<string>();
+      const overviewCandidates = [];
+      for (const item of ranked) {
+        if (seenDocIds.has(item.chunk.documentId)) continue;
+        seenDocIds.add(item.chunk.documentId);
+        overviewCandidates.push({
+          chunk: item.chunk,
+          documentTitle: item.documentTitle,
+          fileType: item.fileType,
+          libraryId: item.libraryId,
+          libraryName: item.libraryName,
+          folderName: item.folderName,
+          score: Math.max(0.35, item.score),
+        });
+        if (overviewCandidates.length >= candidateWindow) break;
+      }
+      topCandidates = overviewCandidates;
+    }
 
     return await api.answerFromCandidates({
       libraryId: primaryLibrary.id,

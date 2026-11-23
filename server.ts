@@ -90,6 +90,7 @@ async function startServer() {
 
     const status: SystemStatus = {
       appMode: 'firebase-authenticated',
+      ragMode: geminiReady ? 'gemini-server' : 'unconfigured',
       geminiConfigured: geminiReady,
       openaiConfigured: openaiReady,
       supabaseConfigured: supabaseReady,

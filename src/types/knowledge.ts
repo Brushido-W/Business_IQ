@@ -132,6 +132,7 @@ export interface AskResponse {
 
 export interface SystemStatus {
   appMode: 'firebase-authenticated';
+  ragMode?: 'gemini-server' | 'static-browser' | 'unconfigured';
   geminiConfigured: boolean;
   openaiConfigured: boolean;
   supabaseConfigured: boolean;

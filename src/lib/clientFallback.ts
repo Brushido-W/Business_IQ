@@ -190,6 +190,7 @@ export async function extractDocumentInBrowser(params: {
 export function getStaticSystemStatus(): SystemStatus {
   return {
     appMode: 'firebase-authenticated',
+    ragMode: 'static-browser',
     geminiConfigured: false,
     openaiConfigured: false,
     supabaseConfigured: false,
@@ -209,6 +210,22 @@ const STOP_WORDS = new Set([
   'our', 'your', 'my', 'their', 'we', 'you', 'they', 'about', 'into', 'new',
   'mean', 'means', 'meaning', 'define', 'definition', 'explain', 'tell', 'describe',
 ]);
+
+function stemToken(token: string): string {
+  if (token.length <= 3) return token;
+  if (token.endsWith('ies') && token.length > 4) return `${token.slice(0, -3)}y`;
+  if (token.endsWith('es') && token.length > 4) return token.slice(0, -2);
+  if (token.endsWith('s') && !token.endsWith('ss') && token.length > 3) return token.slice(0, -1);
+  if (token.endsWith('ing') && token.length > 5) return token.slice(0, -3);
+  if (token.endsWith('ed') && token.length > 4) return token.slice(0, -2);
+  return token;
+}
+
+function isOverviewQuery(question: string): boolean {
+  return /\b(summarize|summary|overview|topics|contents|outline|what is in|what does this (?:library|document|file) cover|list (?:all|the) (?:terms|definitions|rules|policies|topics))\b/i.test(
+    question
+  );
+}
 
 function tokenizeQuestion(text: string): string[] {
   return text
@@ -246,20 +263,23 @@ function splitChunkIntoUnits(content: string): string[] {
 function scoreUnitAgainstQuestion(unit: string, qTokens: string[], baseScore: number): number {
   if (qTokens.length === 0) return baseScore;
   const lower = unit.toLowerCase();
-  const unitTokens = new Set(tokenizeQuestion(unit));
+  const unitTokens = tokenizeQuestion(unit);
+  const unitTokenSet = new Set(unitTokens);
+  const unitStemSet = new Set(unitTokens.map(stemToken));
 
   let matched = 0;
   let definitionBoost = 0;
 
   for (const token of qTokens) {
-    if (unitTokens.has(token)) {
+    const stem = stemToken(token);
+    if (unitTokenSet.has(token) || unitStemSet.has(stem)) {
       matched += 1;
       // Boost glossary/definition entries like "Genuine: ..." or "**Genuine** - ..."
       const defPattern = new RegExp(`^(?:\\d+\\.\\s*)?(?:\\*\\*|__)?${token}(?:\\*\\*|__)?\\s*[:\\-–]`, 'i');
       if (defPattern.test(unit.trim())) {
         definitionBoost += 0.65;
       }
-    } else if (token.length >= 4 && lower.includes(token)) {
+    } else if (stem.length >= 4 && lower.includes(stem)) {
       matched += 0.6;
     }
   }
@@ -357,6 +377,7 @@ export function generateStaticGroundedAnswer(payload: StaticAnswerPayload): AskR
   }
 
   const qTokens = tokenizeQuestion(question);
+  const overviewMode = isOverviewQuery(question);
 
   interface ScoredExtract {
     text: string;
@@ -372,6 +393,18 @@ export function generateStaticGroundedAnswer(payload: StaticAnswerPayload): AskR
       if (score > 0) {
         extracts.push({ text: unit, score, candidate });
       }
+    }
+  }
+
+  if (extracts.length === 0 && overviewMode) {
+    for (const candidate of candidates.slice(0, 4)) {
+      const units = splitChunkIntoUnits(candidate.chunk.content);
+      const firstMeaningful = units.find((u) => u.length >= 16) || candidate.chunk.content.slice(0, 240);
+      extracts.push({
+        text: firstMeaningful,
+        score: candidate.score || 0.35,
+        candidate,
+      });
     }
   }
 

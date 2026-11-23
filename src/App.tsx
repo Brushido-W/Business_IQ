@@ -726,6 +726,14 @@ export default function App() {
             onOpenQuickUpload={() => void handleOpenQuickUploadFromAsk()}
             onNavigateToLibraries={() => setView({ type: 'libraries' })}
             geminiConfigured={systemStatus ? systemStatus.geminiConfigured : true}
+            ragMode={
+              systemStatus?.ragMode ||
+              (systemStatus
+                ? systemStatus.geminiConfigured
+                  ? 'gemini-server'
+                  : 'unconfigured'
+                : 'gemini-server')
+            }
           />
         )}
 

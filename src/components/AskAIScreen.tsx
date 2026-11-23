@@ -32,6 +32,7 @@ interface AskAIScreenProps {
   onOpenQuickUpload: () => void;
   onNavigateToLibraries: () => void;
   geminiConfigured: boolean;
+  ragMode?: 'gemini-server' | 'static-browser' | 'unconfigured';
 }
 
 /**
@@ -185,6 +186,7 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
   onOpenQuickUpload,
   onNavigateToLibraries,
   geminiConfigured,
+  ragMode = geminiConfigured ? 'gemini-server' : 'unconfigured',
 }) => {
   const [input, setInput] = useState('');
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -479,7 +481,7 @@ export const AskAIScreen: React.FC<AskAIScreenProps> = ({
         )}
 
         {/* Contextual Status Notices */}
-        {!geminiConfigured && (
+        {ragMode === 'unconfigured' && (
           <div className="mt-3.5 flex items-start gap-2.5 px-3.5 py-2.5 rounded-[8px] bg-[#FEF2F2] border border-[#FECACA] text-[13px] text-[#991B1B]">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-[#DC2626]" />
             <span>
