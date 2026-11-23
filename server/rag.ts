@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 import {
   AskResponse,
   Citation,
@@ -97,27 +97,36 @@ export async function embedTexts(texts: string[]): Promise<(number[] | null)[]> 
   const ai = getGeminiClient();
   if (!ai || texts.length === 0) return texts.map(() => null);
 
-  const results: (number[] | null)[] = [];
-  const batchSize = 12;
+  const batchSize = 24;
+  const batches: string[][] = [];
   for (let i = 0; i < texts.length; i += batchSize) {
-    const slice = texts.slice(i, i + batchSize);
-    try {
-      const response = await ai.models.embedContent({
-        model: 'gemini-embedding-2',
-        contents: slice,
-      });
-      const embeddings = response.embeddings || [];
-      for (let j = 0; j < slice.length; j++) {
-        results.push(embeddings[j]?.values || null);
-      }
-    } catch (err) {
-      console.warn('Embedding batch fell back to lexical scoring:', err);
-      for (let j = 0; j < slice.length; j++) {
-        results.push(null);
-      }
-    }
+    batches.push(texts.slice(i, i + batchSize));
   }
-  return results;
+
+  const batchResults: Array<(number[] | null)[]> = new Array(batches.length);
+  const CONCURRENCY = 3;
+
+  for (let i = 0; i < batches.length; i += CONCURRENCY) {
+    const group = batches.slice(i, i + CONCURRENCY);
+    await Promise.all(
+      group.map(async (slice, offset) => {
+        const batchIdx = i + offset;
+        try {
+          const response = await ai.models.embedContent({
+            model: 'gemini-embedding-2',
+            contents: slice,
+          });
+          const embeddings = response.embeddings || [];
+          batchResults[batchIdx] = slice.map((_, j) => embeddings[j]?.values || null);
+        } catch (err) {
+          console.warn('Embedding batch fell back to lexical scoring:', err);
+          batchResults[batchIdx] = slice.map(() => null);
+        }
+      })
+    );
+  }
+
+  return batchResults.flat();
 }
 
 export async function extractAndChunkBuffer(params: {
@@ -289,61 +298,83 @@ User Question:
 ${question}`;
 
   const callGenerateWithRetry = async () => {
+    const models = ['gemini-4-hydrogen', 'gemini-3.1-flash-lite'] as const;
     let lastErr: unknown;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        return await ai.models.generateContent({
-          model: 'gemini-4-hydrogen',
-          contents: prompt,
-          config: {
-            systemInstruction,
-            responseMimeType: 'application/json',
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                hasSufficientEvidence: {
-                  type: Type.BOOLEAN,
-                  description:
-                    'True only if the retrieved passages directly and sufficiently support answering the question.',
-                },
-                answer: {
-                  type: Type.STRING,
-                  description:
-                    'Clear grounded answer using only retrieved evidence (with newline-separated numbered steps when appropriate), or the exact insufficient-information response.',
-                },
-                citations: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      chunkId: {
-                        type: Type.STRING,
-                        description: 'Exact chunkId from one of the provided PASSAGE blocks.',
+
+    for (let mIdx = 0; mIdx < models.length; mIdx++) {
+      const model = models[mIdx];
+      const hasBackup = mIdx < models.length - 1;
+      const maxAttempts = hasBackup ? 1 : 2;
+
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          return await ai.models.generateContent({
+            model,
+            contents: prompt,
+            config: {
+              systemInstruction,
+              thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+              responseMimeType: 'application/json',
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  hasSufficientEvidence: {
+                    type: Type.BOOLEAN,
+                    description:
+                      'True only if the retrieved passages directly and sufficiently support answering the question.',
+                  },
+                  answer: {
+                    type: Type.STRING,
+                    description:
+                      'Clear grounded answer using only retrieved evidence (with newline-separated numbered steps when appropriate), or the exact insufficient-information response.',
+                  },
+                  citations: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        chunkId: {
+                          type: Type.STRING,
+                          description: 'Exact chunkId from one of the provided PASSAGE blocks.',
+                        },
+                        quote: {
+                          type: Type.STRING,
+                          description:
+                            'Exact verbatim supporting excerpt copied from the cited chunk content (40 to 220 characters).',
+                        },
                       },
-                      quote: {
-                        type: Type.STRING,
-                        description:
-                          'Exact verbatim supporting excerpt copied from the cited chunk content (40 to 220 characters).',
-                      },
+                      required: ['chunkId', 'quote'],
                     },
-                    required: ['chunkId', 'quote'],
                   },
                 },
+                required: ['hasSufficientEvidence', 'answer', 'citations'],
               },
-              required: ['hasSufficientEvidence', 'answer', 'citations'],
             },
-          },
-        });
-      } catch (err: unknown) {
-        lastErr = err;
-        const msg = err instanceof Error ? err.message : String(err);
-        const isTransient = /503|UNAVAILABLE|429|RESOURCE_EXHAUSTED|ECONNRESET|timeout/i.test(msg);
-        if (!isTransient || attempt === 2) {
-          throw err;
+          });
+        } catch (err: unknown) {
+          lastErr = err;
+          const msg = err instanceof Error ? err.message : String(err);
+          const isAuthOrKeyError = /403|PERMISSION_DENIED|API_KEY_INVALID/i.test(msg);
+          if (isAuthOrKeyError) {
+            throw err;
+          }
+          const isTransient = /503|UNAVAILABLE|429|RESOURCE_EXHAUSTED|ECONNRESET|timeout|404|NOT_FOUND/i.test(
+            msg
+          );
+          if (!isTransient) {
+            throw err;
+          }
+          if (attempt < maxAttempts - 1) {
+            const jitter = Math.floor(Math.random() * 250);
+            await new Promise((resolve) => setTimeout(resolve, 450 + jitter));
+          }
         }
-        await new Promise((resolve) => setTimeout(resolve, 700 * (attempt + 1)));
+      }
+      if (hasBackup) {
+        console.warn(`Model ${model} unavailable or overloaded, failing over to ${models[mIdx + 1]}...`);
       }
     }
+
     throw lastErr;
   };
 

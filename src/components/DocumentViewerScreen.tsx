@@ -499,9 +499,17 @@ export const DocumentViewerScreen: React.FC<DocumentViewerScreenProps> = ({
                 </div>
               </dl>
 
-              <div className="mt-4 pt-3.5 border-t border-[#E2E8F0] flex items-center justify-between">
-                <span className="text-[12px] font-medium text-[#64748B]">Indexing Status</span>
-                <StatusPill status={doc.status} />
+              <div className="mt-4 pt-3.5 border-t border-[#E2E8F0] space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[12px] font-medium text-[#64748B]">Indexing Status</span>
+                  <StatusPill status={doc.status} />
+                </div>
+                <div className="flex items-center justify-between text-[12px]">
+                  <span className="font-medium text-[#64748B]">File Storage</span>
+                  <span className="font-medium text-[#334155]">
+                    {doc.storageUploaded ? 'Firebase Storage' : 'Text-indexed only'}
+                  </span>
+                </div>
               </div>
             </div>
           </div>

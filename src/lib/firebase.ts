@@ -9,11 +9,45 @@ const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const storage = getStorage(app);
+// Prevent Firebase Storage SDK from retrying for 2-10 minutes when a bucket is unprovisioned or blocked
+storage.maxUploadRetryTime = 8000;
+storage.maxOperationRetryTime = 8000;
+
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 export const FIREBASE_PROJECT_ID = firebaseConfig.projectId;
 export const FIREBASE_STORAGE_BUCKET = firebaseConfig.storageBucket;
+
+let cachedStorageCheck: { available: boolean; checkedAt: number } | null = null;
+
+export async function checkFirebaseStorageAvailable(): Promise<boolean> {
+  if (!FIREBASE_STORAGE_BUCKET) return false;
+  const now = Date.now();
+  if (cachedStorageCheck) {
+    const ttl = cachedStorageCheck.available ? 5 * 60 * 1000 : 30 * 1000;
+    if (now - cachedStorageCheck.checkedAt < ttl) {
+      return cachedStorageCheck.available;
+    }
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3000);
+  try {
+    const res = await fetch(
+      `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(FIREBASE_STORAGE_BUCKET)}/o?maxResults=1`,
+      { method: 'GET', signal: controller.signal }
+    );
+    // 404 means Firebase Storage has not been enabled/provisioned for this project yet.
+    const available = res.status !== 404;
+    cachedStorageCheck = { available, checkedAt: Date.now() };
+    return available;
+  } catch {
+    return true;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export enum OperationType {
   CREATE = 'create',

@@ -33,6 +33,7 @@ import {
   UserProfile,
 } from '../types/knowledge.ts';
 import {
+  checkFirebaseStorageAvailable,
   db,
   handleFirestoreError,
   OperationType,
@@ -760,12 +761,66 @@ function sanitizePagesForFirestore(pages: DocumentPage[]): DocumentPage[] {
   return result.slice(0, 5000);
 }
 
+export interface UploadDocumentsResult {
+  documents: DocumentRecord[];
+  storageWarnings: string[];
+}
+
+async function tryUploadToFirebaseStorage(params: {
+  userId: string;
+  libraryId: string;
+  documentId: string;
+  safeName: string;
+  file: File;
+}): Promise<{
+  uploaded: boolean;
+  storagePath: string | null;
+  downloadUrl: string | null;
+  warning: string | null;
+}> {
+  const { userId, libraryId, documentId, safeName, file } = params;
+  const bucketAvailable = await checkFirebaseStorageAvailable();
+  if (!bucketAvailable) {
+    return {
+      uploaded: false,
+      storagePath: null,
+      downloadUrl: null,
+      warning:
+        'Firebase Storage is not enabled on this Firebase project yet; text was indexed in Firestore without storing the raw binary file.',
+    };
+  }
+
+  const objectPath = `users/${userId}/libraries/${libraryId}/documents/${documentId}/${safeName}`;
+  try {
+    const fileRef = storageRef(storage, objectPath);
+    await uploadBytes(fileRef, file, {
+      contentType: file.type || 'application/octet-stream',
+    });
+    const downloadUrl = await getDownloadURL(fileRef);
+    return {
+      uploaded: true,
+      storagePath: objectPath,
+      downloadUrl,
+      warning: null,
+    };
+  } catch (storageErr: unknown) {
+    const storageMsg =
+      storageErr instanceof Error ? storageErr.message : String(storageErr);
+    return {
+      uploaded: false,
+      storagePath: null,
+      downloadUrl: null,
+      warning: `Raw file backup to Firebase Storage was skipped (${storageMsg}). Ensure Firebase Storage is enabled and storage.rules are deployed.`,
+    };
+  }
+}
+
 export async function uploadDocuments(
   userId: string,
   libraryId: string,
   files: File[],
   folderId: string | null
-): Promise<DocumentRecord[]> {
+): Promise<UploadDocumentsResult> {
   if (files.length === 0) {
     throw new Error('Please select at least one file to upload.');
   }
@@ -778,6 +833,7 @@ export async function uploadDocuments(
   const vectorStoreId = (libData.vectorStoreId as string) || `vs_biq_${libraryId}`;
 
   const createdRecords: DocumentRecord[] = [];
+  const storageWarnings: string[] = [];
 
   for (const file of files) {
     const safeName = sanitizeFilename(file.name);
@@ -795,7 +851,7 @@ export async function uploadDocuments(
     const docRef = doc(db, 'libraries', libraryId, 'documents', documentId);
     const docPath = `libraries/${libraryId}/documents/${documentId}`;
 
-    // 1. Create initial metadata record in Firestore with status: 'uploading'
+    // 1. Create initial metadata record in Firestore with status: 'processing'
     try {
       await setDoc(docRef, {
         documentId,
@@ -812,7 +868,7 @@ export async function uploadDocuments(
         storageUploaded: false,
         providerFileId: `file_biq_${documentId}`,
         vectorStoreId,
-        status: 'uploading',
+        status: 'processing',
         errorMessage: null,
         chunkCount: 0,
         createdAt: serverTimestamp(),
@@ -822,57 +878,31 @@ export async function uploadDocuments(
       handleFirestoreError(err, OperationType.CREATE, docPath);
     }
 
-    // 2. Upload actual binary file to Firebase Storage (never fake upload in Firestore!)
-    const objectPath = `users/${userId}/libraries/${libraryId}/documents/${documentId}/${safeName}`;
-    let downloadUrl: string;
-    try {
-      const fileRef = storageRef(storage, objectPath);
-      await uploadBytes(fileRef, file, {
-        contentType: file.type || 'application/octet-stream',
-      });
-      downloadUrl = await getDownloadURL(fileRef);
-    } catch (storageErr: unknown) {
-      const storageMsg =
-        storageErr instanceof Error ? storageErr.message : String(storageErr);
-      const friendlyStorageMsg = `Firebase Storage upload failed for "${safeName}": ${storageMsg}. Ensure Firebase Storage is enabled and storage.rules are deployed for this project.`;
-      try {
-        await updateDoc(docRef, {
-          status: 'failed',
-          errorMessage: friendlyStorageMsg.slice(0, 500),
-          updatedAt: serverTimestamp(),
-        });
-      } catch {
-        // ignore secondary status write error
-      }
-      throw new Error(friendlyStorageMsg);
-    }
-
-    // 3. Record verified Firebase Storage metadata and transition to 'processing'
-    try {
-      await updateDoc(docRef, {
-        storagePath: objectPath,
-        downloadUrl,
-        storageUploaded: true,
-        status: 'processing',
-        updatedAt: serverTimestamp(),
-      });
-    } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, docPath);
-    }
-
-    // 4. Extract pages, chunk, and embed via server extraction route
-    let extracted: { pages: DocumentPage[]; chunks: DocumentChunk[] };
-    try {
-      extracted = await api.extractDocument({
-        file,
-        documentId,
+    // 2. Run text extraction/embedding AND Firebase Storage backup in parallel (never hang 10m on Storage)
+    const [extractSettled, storageResult] = await Promise.all([
+      api
+        .extractDocument({ file, documentId, libraryId })
+        .then((res) => ({ ok: true as const, res }))
+        .catch((err: unknown) => ({ ok: false as const, err })),
+      tryUploadToFirebaseStorage({
+        userId,
         libraryId,
-      });
-    } catch (extractErr: unknown) {
+        documentId,
+        safeName,
+        file,
+      }),
+    ]);
+
+    if (!extractSettled.ok) {
       const errMsg =
-        extractErr instanceof Error ? extractErr.message : 'Document extraction failed.';
+        extractSettled.err instanceof Error
+          ? extractSettled.err.message
+          : 'Document extraction failed.';
       try {
         await updateDoc(docRef, {
+          storagePath: storageResult.storagePath,
+          downloadUrl: storageResult.downloadUrl,
+          storageUploaded: storageResult.uploaded,
           status: 'failed',
           errorMessage: errMsg.slice(0, 500),
           updatedAt: serverTimestamp(),
@@ -883,7 +913,13 @@ export async function uploadDocuments(
       throw new Error(errMsg);
     }
 
-    // 5. Persist extracted pages, chunks, and ready status in Firestore
+    if (storageResult.warning) {
+      storageWarnings.push(storageResult.warning);
+    }
+
+    const extracted = extractSettled.res;
+
+    // 3. Persist extracted pages, chunks, verified Storage flags, and ready status in Firestore
     try {
       const safePages = sanitizePagesForFirestore(extracted.pages);
       const safeChunks = extracted.chunks.slice(0, 10000);
@@ -927,25 +963,31 @@ export async function uploadDocuments(
       }
 
       const BATCH_LIMIT = 350;
+      const batchPromises: Array<Promise<void>> = [];
       for (let i = 0; i < writeOps.length; i += BATCH_LIMIT) {
         const batch = writeBatch(db);
         for (const op of writeOps.slice(i, i + BATCH_LIMIT)) {
           batch.set(op.ref, op.data);
         }
-        await batch.commit();
+        batchPromises.push(batch.commit());
       }
+      await Promise.all(batchPromises);
 
-      await updateDoc(docRef, {
-        pageCount: safePages.length,
-        chunkCount: safeChunks.length,
-        status: 'ready',
-        errorMessage: null,
-        updatedAt: serverTimestamp(),
-      });
-
-      await updateDoc(doc(db, 'libraries', libraryId), {
-        updatedAt: serverTimestamp(),
-      });
+      await Promise.all([
+        updateDoc(docRef, {
+          storagePath: storageResult.storagePath,
+          downloadUrl: storageResult.downloadUrl,
+          storageUploaded: storageResult.uploaded,
+          pageCount: safePages.length,
+          chunkCount: safeChunks.length,
+          status: 'ready',
+          errorMessage: null,
+          updatedAt: serverTimestamp(),
+        }),
+        updateDoc(doc(db, 'libraries', libraryId), {
+          updatedAt: serverTimestamp(),
+        }),
+      ]);
 
       const finalSnap = await getDoc(docRef);
       createdRecords.push(
@@ -956,7 +998,10 @@ export async function uploadDocuments(
     }
   }
 
-  return createdRecords;
+  return {
+    documents: createdRecords,
+    storageWarnings,
+  };
 }
 
 export async function getDocumentDetail(
@@ -1230,6 +1275,7 @@ function tokenize(text: string): string[] {
     'in', 'with', 'as', 'by', 'be', 'are', 'was', 'were', 'it', 'that', 'this',
     'from', 'what', 'how', 'when', 'where', 'who', 'why', 'do', 'does', 'can',
     'our', 'your', 'my', 'their', 'we', 'you', 'they', 'about', 'into', 'new',
+    'mean', 'means', 'meaning', 'define', 'definition', 'explain', 'tell', 'describe',
   ]);
   return text
     .toLowerCase()

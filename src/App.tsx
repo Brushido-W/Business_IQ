@@ -553,12 +553,19 @@ export default function App() {
     const targetLibId = uploadModalState.libraryId;
     if (!targetLibId) return;
     try {
-      await uploadDocuments(user.uid, targetLibId, files, folderId);
+      const result = await uploadDocuments(user.uid, targetLibId, files, folderId);
       await refreshLibraries();
-      showToast(
-        'success',
-        `Uploaded and indexed ${files.length} file${files.length === 1 ? '' : 's'}.`
-      );
+      if (result.storageWarnings.length > 0) {
+        showToast(
+          'success',
+          `Indexed ${files.length} file${files.length === 1 ? '' : 's'} for Ask BIQ. Raw file backup skipped (enable Firebase Storage to store original binaries).`
+        );
+      } else {
+        showToast(
+          'success',
+          `Uploaded and indexed ${files.length} file${files.length === 1 ? '' : 's'}.`
+        );
+      }
     } catch (err: unknown) {
       await refreshLibraries();
       throw new Error(extractFriendlyErrorMessage(err, 'Upload failed. Please try again.'));
