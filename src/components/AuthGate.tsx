@@ -23,7 +23,10 @@ export const AuthGate: React.FC = () => {
       } else if (code === 'auth/popup-blocked') {
         setError('Your browser blocked the Google sign-in popup. Allow popups for this site and try again.');
       } else if (code === 'auth/unauthorized-domain') {
-        setError('This domain is not yet authorized in Firebase Authentication settings.');
+        const host = typeof window !== 'undefined' ? window.location.hostname : 'this domain';
+        setError(
+          `Domain "${host}" is not yet added to Firebase Authentication > Settings > Authorized domains.`
+        );
       } else {
         setError(err instanceof Error ? err.message : 'Unable to sign in with Google.');
       }

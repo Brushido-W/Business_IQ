@@ -271,13 +271,19 @@ service cloud.firestore {
             (
               existing().status in ['uploading', 'processing'] &&
               incoming().status == 'ready' &&
-              incoming().diff(existing()).affectedKeys().hasOnly(['pageCount', 'chunkCount', 'status', 'errorMessage', 'updatedAt'])
+              incoming().diff(existing()).affectedKeys().hasOnly([
+                'storagePath', 'downloadUrl', 'storageUploaded',
+                'pageCount', 'chunkCount', 'status', 'errorMessage', 'updatedAt'
+              ])
             ) ||
             // Action: Fail indexing (from uploading/processing -> failed)
             (
               existing().status in ['uploading', 'processing'] &&
               incoming().status == 'failed' &&
-              incoming().diff(existing()).affectedKeys().hasOnly(['status', 'errorMessage', 'updatedAt'])
+              incoming().diff(existing()).affectedKeys().hasOnly([
+                'storagePath', 'downloadUrl', 'storageUploaded',
+                'status', 'errorMessage', 'updatedAt'
+              ])
             ) ||
             // Action: Retry indexing (from failed -> processing)
             (

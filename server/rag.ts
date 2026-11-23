@@ -142,7 +142,15 @@ export async function extractAndChunkBuffer(params: {
     throw new Error('No indexable text chunks could be produced from this file.');
   }
 
-  const vectors = await embedTexts(chunks.map((c) => c.content.slice(0, 2000)));
+  const embedPromise = embedTexts(chunks.map((c) => c.content.slice(0, 2000)));
+  const timeoutPromise = new Promise<(number[] | null)[]>((resolve) => {
+    setTimeout(() => {
+      console.warn('Embedding timed out during extraction; proceeding with lexical index.');
+      resolve(chunks.map(() => null));
+    }, 6000);
+  });
+
+  const vectors = await Promise.race([embedPromise, timeoutPromise]);
   for (let i = 0; i < chunks.length; i++) {
     if (vectors[i]) {
       chunks[i].embedding = vectors[i] as number[];

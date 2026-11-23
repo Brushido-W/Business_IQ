@@ -442,10 +442,23 @@ export const DocumentViewerScreen: React.FC<DocumentViewerScreenProps> = ({
               {activePageData ? (
                 renderStructuredPage(activePageData.content)
               ) : (
-                <div className="py-16 text-center text-[13.5px] text-[#64748B]">
-                  {doc.status === 'processing' || doc.status === 'uploading'
-                    ? 'This document is currently being extracted and indexed. Preview will appear once Ready.'
-                    : doc.errorMessage || 'No extracted text preview is available for this document.'}
+                <div className="py-16 text-center text-[13.5px] text-[#64748B] max-w-md mx-auto">
+                  {doc.status === 'processing' || doc.status === 'uploading' ? (
+                    Date.now() - Date.parse(doc.updatedAt) > 45_000 ? (
+                      <div className="space-y-3">
+                        <p className="text-[#0F172A] font-medium">
+                          Indexing for this document appears to have been interrupted during an earlier upload.
+                        </p>
+                        <p>
+                          Please delete this document entry and upload the file again to complete indexing.
+                        </p>
+                      </div>
+                    ) : (
+                      'This document is currently being extracted and indexed. Preview will appear once Ready.'
+                    )
+                  ) : (
+                    doc.errorMessage || 'No extracted text preview is available for this document.'
+                  )}
                 </div>
               )}
             </div>

@@ -562,8 +562,11 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
           </div>
           <button
             type="button"
-            onClick={onClose}
-            className="p-1 rounded-[6px] text-[#64748B] hover:text-[#0F172A] hover:bg-[#F1F5F9]"
+            onClick={() => {
+              if (!uploading) onClose();
+            }}
+            disabled={uploading}
+            className="p-1 rounded-[6px] text-[#64748B] hover:text-[#0F172A] hover:bg-[#F1F5F9] disabled:opacity-40 disabled:pointer-events-none"
             aria-label="Close upload modal"
           >
             <X className="w-4 h-4" />
@@ -587,7 +590,8 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
               id="upload-folder"
               value={selectedFolderId}
               onChange={(e) => setSelectedFolderId(e.target.value)}
-              className="w-full px-3 py-2 text-[13.5px] text-[#0F172A] bg-white border border-[#CBD5E1] rounded-[8px] focus:outline-none focus:border-[#2563EB]"
+              disabled={uploading}
+              className="w-full px-3 py-2 text-[13.5px] text-[#0F172A] bg-white border border-[#CBD5E1] rounded-[8px] focus:outline-none focus:border-[#2563EB] disabled:opacity-60"
             >
               <option value="">Unfiled (Library Root)</option>
               {folders.map((folder) => (
@@ -601,22 +605,28 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
           {/* Drag & Drop Dashed Zone (Matches Screenshot 1 Workflow A Step 4) */}
           <div
             onDragOver={(e) => {
+              if (uploading) return;
               e.preventDefault();
               setIsDragging(true);
             }}
             onDragLeave={() => setIsDragging(false)}
             onDrop={(e) => {
+              if (uploading) return;
               e.preventDefault();
               setIsDragging(false);
               if (e.dataTransfer.files) {
                 validateAndAddFiles(e.dataTransfer.files);
               }
             }}
-            onClick={() => fileInputRef.current?.click()}
-            className={`border-2 border-dashed rounded-[12px] p-7 text-center transition-colors cursor-pointer ${
-              isDragging
-                ? 'border-[#2563EB] bg-[#EFF6FF]'
-                : 'border-[#93C5FD] bg-[#F8FAFC] hover:bg-[#EFF6FF]/60'
+            onClick={() => {
+              if (!uploading) fileInputRef.current?.click();
+            }}
+            className={`border-2 border-dashed rounded-[12px] p-7 text-center transition-colors ${
+              uploading
+                ? 'border-[#CBD5E1] bg-[#F8FAFC] opacity-60 cursor-not-allowed'
+                : isDragging
+                  ? 'border-[#2563EB] bg-[#EFF6FF] cursor-pointer'
+                  : 'border-[#93C5FD] bg-[#F8FAFC] hover:bg-[#EFF6FF]/60 cursor-pointer'
             }`}
           >
             <input
@@ -624,6 +634,7 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
               type="file"
               multiple
               accept=".pdf,.docx,.txt,.md"
+              disabled={uploading}
               className="hidden"
               onChange={(e) => {
                 if (e.target.files) {
@@ -639,11 +650,12 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
             <p className="text-[12px] text-[#64748B] mt-1">PDF, DOCX, TXT, MD (Max 25 MB)</p>
             <button
               type="button"
+              disabled={uploading}
               onClick={(e) => {
                 e.stopPropagation();
                 fileInputRef.current?.click();
               }}
-              className="mt-4 px-4 py-2 text-[13px] font-semibold text-white bg-[#2563EB] hover:bg-[#1D4ED8] rounded-[8px] transition-colors"
+              className="mt-4 px-4 py-2 text-[13px] font-semibold text-white bg-[#2563EB] hover:bg-[#1D4ED8] disabled:opacity-50 rounded-[8px] transition-colors"
             >
               Select Files
             </button>
@@ -668,10 +680,11 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
                   </div>
                   <button
                     type="button"
+                    disabled={uploading}
                     onClick={() =>
                       setQueuedFiles((prev) => prev.filter((_, i) => i !== idx))
                     }
-                    className="p-1 text-[#64748B] hover:text-[#DC2626] rounded"
+                    className="p-1 text-[#64748B] hover:text-[#DC2626] disabled:opacity-40 rounded"
                     aria-label={`Remove ${file.name}`}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -686,7 +699,7 @@ export const UploadDocumentsModal: React.FC<UploadDocumentsModalProps> = ({
               type="button"
               onClick={onClose}
               disabled={uploading}
-              className="px-4 py-2 text-[13.5px] font-medium text-[#334155] bg-white border border-[#CBD5E1] rounded-[8px] hover:bg-[#F8FAFC]"
+              className="px-4 py-2 text-[13.5px] font-medium text-[#334155] bg-white border border-[#CBD5E1] rounded-[8px] hover:bg-[#F8FAFC] disabled:opacity-50"
             >
               Cancel
             </button>

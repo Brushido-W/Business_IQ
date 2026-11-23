@@ -791,12 +791,23 @@ async function tryUploadToFirebaseStorage(params: {
   }
 
   const objectPath = `users/${userId}/libraries/${libraryId}/documents/${documentId}/${safeName}`;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
     const fileRef = storageRef(storage, objectPath);
-    await uploadBytes(fileRef, file, {
-      contentType: file.type || 'application/octet-stream',
+    const uploadPromise = (async () => {
+      await uploadBytes(fileRef, file, {
+        contentType: file.type || 'application/octet-stream',
+      });
+      return getDownloadURL(fileRef);
+    })();
+
+    const timeoutPromise = new Promise<never>((_resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error('Storage upload timed out after 6 seconds'));
+      }, 6000);
     });
-    const downloadUrl = await getDownloadURL(fileRef);
+
+    const downloadUrl = await Promise.race([uploadPromise, timeoutPromise]);
     return {
       uploaded: true,
       storagePath: objectPath,
@@ -812,6 +823,10 @@ async function tryUploadToFirebaseStorage(params: {
       downloadUrl: null,
       warning: `Raw file backup to Firebase Storage was skipped (${storageMsg}). Ensure Firebase Storage is enabled and storage.rules are deployed.`,
     };
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
   }
 }
 
@@ -939,13 +954,15 @@ export async function uploadDocuments(
             libraryId,
             userId,
             pageNumber: Math.trunc(page.pageNumber),
-            content: page.content.slice(0, 50000),
+            content: page.content.slice(0, 49000),
           },
         });
       }
 
       for (const chunk of safeChunks) {
         const chunkId = chunk.id || `chk_${documentId}_${chunk.chunkIndex}`;
+        const safeContent = chunk.content.slice(0, 9500);
+        if (!safeContent.trim()) continue;
         writeOps.push({
           ref: doc(db, 'libraries', libraryId, 'chunks', chunkId),
           data: {
@@ -956,7 +973,7 @@ export async function uploadDocuments(
             pageNumber: Math.trunc(chunk.pageNumber),
             sectionTitle: chunk.sectionTitle ? chunk.sectionTitle.slice(0, 200) : null,
             chunkIndex: Math.trunc(chunk.chunkIndex),
-            content: chunk.content.slice(0, 10000),
+            content: safeContent,
             embedding: Array.isArray(chunk.embedding) ? chunk.embedding.slice(0, 4096) : [],
           },
         });
@@ -994,6 +1011,22 @@ export async function uploadDocuments(
         mapDocumentDoc(documentId, (finalSnap.data() || {}) as Record<string, unknown>)
       );
     } catch (firestoreErr: unknown) {
+      const errMsg =
+        firestoreErr instanceof Error
+          ? firestoreErr.message
+          : 'Failed to save extracted document index.';
+      try {
+        await updateDoc(docRef, {
+          storagePath: storageResult.storagePath,
+          downloadUrl: storageResult.downloadUrl,
+          storageUploaded: storageResult.uploaded,
+          status: 'failed',
+          errorMessage: errMsg.slice(0, 500),
+          updatedAt: serverTimestamp(),
+        });
+      } catch {
+        // ignore secondary status write error
+      }
       handleFirestoreError(firestoreErr, OperationType.WRITE, docPath);
     }
   }
@@ -1483,7 +1516,7 @@ export async function askLibrariesQuestion(params: {
             item.vectorScore >= 0.72
           );
         }
-        return item.lexicalScore >= 0.2;
+        return item.lexicalScore >= 0.15;
       })
       .map(({ chunk, documentTitle, fileType, libraryId, libraryName, folderName, score }) => ({
         chunk,

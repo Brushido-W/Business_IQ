@@ -63,6 +63,16 @@ const upload = multer({
 
 async function startServer() {
   const app = express();
+  app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+    const allowedOrigin = process.env.CORS_ALLOWED_ORIGIN?.trim() || '*';
+    res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    if (req.method === 'OPTIONS') {
+      return res.status(204).end();
+    }
+    return next();
+  });
   app.use(express.json({ limit: '6mb' }));
 
   // --- System & Health ---
@@ -259,6 +269,7 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distDir = path.resolve(process.cwd(), 'dist');
+    app.use('/Business_IQ', express.static(distDir));
     app.use(express.static(distDir));
     app.get('*', (_req, res) => {
       res.sendFile(path.join(distDir, 'index.html'));
